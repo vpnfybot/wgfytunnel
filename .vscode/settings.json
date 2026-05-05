@@ -1,0 +1,9 @@
+{
+  "dart.androidSdkPath": "C:\\Users\\vayzer\\AppData\\Local\\Android\\sdk",
+  "android.adbPath": "C:\\Users\\vayzer\\AppData\\Local\\Android\\sdk\\platform-tools\\adb.exe",
+  "terminal.integrated.env.windows": {
+    "ANDROID_SDK_ROOT": "C:\\Users\\vayzer\\AppData\\Local\\Android\\sdk",
+    "ANDROID_HOME": "C:\\Users\\vayzer\\AppData\\Local\\Android\\sdk",
+    "PATH": "C:\\Users\\vayzer\\AppData\\Local\\Android\\sdk\\platform-tools;${env:PATH}"
+  }
+}
