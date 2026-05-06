@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -9,7 +11,12 @@ import 'split_tunnel_prefs.dart';
 import 'theme_mode_button.dart';
 
 class SplitTunnelSettingsPage extends StatefulWidget {
-  const SplitTunnelSettingsPage({super.key});
+  const SplitTunnelSettingsPage({
+    super.key,
+    required this.isVpnConnected,
+  });
+
+  final bool Function() isVpnConnected;
 
   @override
   State<SplitTunnelSettingsPage> createState() => _SplitTunnelSettingsPageState();
@@ -17,6 +24,8 @@ class SplitTunnelSettingsPage extends StatefulWidget {
 
 class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   static const MethodChannel _wireGuardChannel = MethodChannel('wgfytunnel/wireguard');
+  final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
+      GlobalKey<ScaffoldMessengerState>();
 
   List<InstalledApp> _installedApps = const [];
   bool _hasRequestedApps = false;
@@ -28,6 +37,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   SplitTunnelDomainMode _domainMode = SplitTunnelDomainMode.all;
   final List<String> _domainList = <String>[];
   final TextEditingController _domainInputController = TextEditingController();
+  bool _showReconnectBanner = false;
+  Timer? _reconnectBannerTimer;
 
   @override
   void initState() {
@@ -37,8 +48,157 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
 
   @override
   void dispose() {
+    _reconnectBannerTimer?.cancel();
     _domainInputController.dispose();
     super.dispose();
+  }
+
+  Future<void> _showAboutDialog() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (pageContext) {
+          final l10n = AppLocalizations.of(pageContext);
+          final textTheme = Theme.of(pageContext).textTheme;
+
+          return Scaffold(
+            appBar: AppBar(
+              leading: BackButton(
+                onPressed: () => Navigator.of(pageContext).pop(),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    _showFullLicensesPage(
+                      pageContext,
+                      applicationName: l10n.appTitle,
+                    );
+                  },
+                  child: Text(l10n.viewFullLicenses),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ),
+            body: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.aboutTitle,
+                      style: textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: SelectionArea(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(l10n.aboutLicensesIntro),
+                              const SizedBox(height: 16),
+                              _buildAboutComponentSection(
+                                pageContext,
+                                title: 'sing-box',
+                                usage: l10n.aboutSingBoxUsage,
+                                author: 'Copyright (C) 2022 by nekohasekai <contact-sagernet@sekai.icu>',
+                                license: 'GNU General Public License v3.0 or later (GPL-3.0-or-later)',
+                              ),
+                              _buildAboutComponentSection(
+                                pageContext,
+                                title: 'NEKOBOX libcore',
+                                usage: l10n.aboutLibcoreUsage,
+                                author: 'Copyright (C) 2021 by nekohasekai <contact-sagernet@sekai.icu>',
+                                license: 'GNU General Public License v3.0 or later (GPL-3.0-or-later)',
+                              ),
+                              _buildAboutComponentSection(
+                                pageContext,
+                                title: 'WireGuard Tunnel Library',
+                                usage: l10n.aboutWireGuardUsage,
+                                author: 'WireGuard (team@wireguard.com)',
+                                license: 'Apache License 2.0',
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                l10n.aboutLicensesFooter,
+                                style: textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showFullLicensesPage(
+    BuildContext context, {
+    required String applicationName,
+  }) {
+    final theme = Theme.of(context);
+    final hiddenTitleStyle =
+        (theme.appBarTheme.titleTextStyle ?? theme.textTheme.titleLarge ?? const TextStyle())
+            .copyWith(
+              color: Colors.transparent,
+              fontSize: 0,
+            );
+    final hiddenToolbarStyle =
+        (theme.appBarTheme.toolbarTextStyle ?? theme.textTheme.titleMedium ?? const TextStyle())
+            .copyWith(
+              color: Colors.transparent,
+              fontSize: 0,
+            );
+
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => Theme(
+          data: theme.copyWith(
+            appBarTheme: theme.appBarTheme.copyWith(
+              titleTextStyle: hiddenTitleStyle,
+              toolbarTextStyle: hiddenToolbarStyle,
+            ),
+          ),
+          child: LicensePage(
+            applicationName: applicationName,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAboutComponentSection(
+    BuildContext context, {
+    required String title,
+    required String usage,
+    required String author,
+    required String license,
+  }) {
+    final l10n = AppLocalizations.of(context);
+    final textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text('${l10n.componentUsageLabel}: $usage'),
+          const SizedBox(height: 4),
+          Text('${l10n.componentAuthorLabel}: $author'),
+          const SizedBox(height: 4),
+          Text('${l10n.componentLicenseLabel}: $license'),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadPrefs() async {
@@ -75,6 +235,12 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     await SplitTunnelPrefs.savePackages(_selectedPackages);
     await SplitTunnelPrefs.saveDomainMode(_domainMode);
     await SplitTunnelPrefs.saveDomains(List<String>.from(_domainList));
+
+    if (!mounted || !widget.isVpnConnected()) {
+      return;
+    }
+
+    _showReconnectBannerTemporarily();
   }
 
   Future<void> _loadInstalledApps() async {
@@ -103,7 +269,45 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   }
 
   void _showMessage(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+    final messenger = _scaffoldMessengerKey.currentState;
+    if (messenger == null) {
+      return;
+    }
+
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  void _hideReconnectBanner() {
+    _reconnectBannerTimer?.cancel();
+    _reconnectBannerTimer = null;
+
+    if (!_showReconnectBanner) {
+      return;
+    }
+
+    setState(() {
+      _showReconnectBanner = false;
+    });
+  }
+
+  void _showReconnectBannerTemporarily() {
+    _reconnectBannerTimer?.cancel();
+
+    if (!_showReconnectBanner) {
+      setState(() {
+        _showReconnectBanner = true;
+      });
+    }
+
+    _reconnectBannerTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) {
+        return;
+      }
+
+      _hideReconnectBanner();
+    });
   }
 
   String _localizedSplitTunnelModeLabel(
@@ -346,10 +550,83 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     );
   }
 
+  Widget _buildReconnectBanner(
+    AppLocalizations l10n, {
+    required double topPadding,
+    required double tabBarHeight,
+  }) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragUpdate: (details) {
+        if ((details.primaryDelta ?? 0) < -8) {
+          _hideReconnectBanner();
+        }
+      },
+      onVerticalDragEnd: (details) {
+        if ((details.primaryVelocity ?? 0) < -250) {
+          _hideReconnectBanner();
+        }
+      },
+      child: Material(
+        color: theme.colorScheme.primary,
+        elevation: 10,
+        child: SizedBox(
+          height: topPadding + kToolbarHeight + tabBarHeight,
+          child: Column(
+            children: [
+              SizedBox(height: topPadding),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final verticalOffset = constraints.maxHeight * 0.50;
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Transform.translate(
+                        offset: Offset(0, verticalOffset),
+                        child: Align(
+                          alignment: Alignment.center,
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: Text(
+                              l10n.reconnectToApplyChangedSettings,
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              SizedBox(height: tabBarHeight),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final languageService = Provider.of<LanguageService>(context);
+    final tabBar = TabBar(
+      tabs: [
+        Tab(icon: const Icon(Icons.apps), text: l10n.apps),
+        Tab(icon: const Icon(Icons.language), text: l10n.sites),
+      ],
+    );
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final tabBarHeight = tabBar.preferredSize.height;
+    final reconnectBannerHeight = topPadding + kToolbarHeight + tabBarHeight;
+    final showReconnectBanner = _showReconnectBanner && widget.isVpnConnected();
+
     if (_isLoadingPrefs) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -357,33 +634,94 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     }
     return DefaultTabController(
       length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          actions: [
-            TextButton.icon(
-              icon: const Icon(Icons.language, size: 18),
-              label: Text(
-                languageService.language == AppLanguage.ru ? 'RU' : 'EN',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          ScaffoldMessenger(
+            key: _scaffoldMessengerKey,
+            child: Scaffold(
+              appBar: AppBar(
+                actions: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.language, size: 18),
+                    label: Text(
+                      languageService.language == AppLanguage.ru ? 'RU' : 'EN',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: () => languageService.toggleLanguage(),
+                  ),
+                  const ThemeModeButton(),
+                  IconButton(
+                    onPressed: _showAboutDialog,
+                    icon: const Icon(Icons.help_outline),
+                    tooltip: l10n.aboutTooltip,
+                  ),
+                  SizedBox(width: MediaQuery.sizeOf(context).width * 0.06),
+                ],
+                bottom: tabBar,
               ),
-              onPressed: () => languageService.toggleLanguage(),
+              body: TabBarView(
+                children: [
+                  _buildAppsTab(),
+                  _buildDomainsTab(),
+                ],
+              ),
             ),
-            const ThemeModeButton(),
-            SizedBox(width: MediaQuery.sizeOf(context).width * 0.06),
-          ],
-          bottom: TabBar(
-            tabs: [
-              Tab(icon: const Icon(Icons.apps), text: l10n.apps),
-              Tab(icon: const Icon(Icons.language), text: l10n.sites),
-            ],
           ),
-        ),
-        body: TabBarView(
-          children: [
-            _buildAppsTab(),
-            _buildDomainsTab(),
-          ],
-        ),
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: ClipRect(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) {
+                  final curvedAnimation = CurvedAnimation(
+                    parent: animation,
+                    curve: Curves.easeOutCubic,
+                    reverseCurve: Curves.easeInCubic,
+                  );
+
+                  return SizeTransition(
+                    sizeFactor: curvedAnimation,
+                    axisAlignment: -1,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, -1),
+                        end: Offset.zero,
+                      ).animate(curvedAnimation),
+                      child: child,
+                    ),
+                  );
+                },
+                layoutBuilder: (currentChild, previousChildren) {
+                  return Stack(
+                    alignment: Alignment.topCenter,
+                    children: [
+                      ...previousChildren,
+                      ...?currentChild == null ? null : [currentChild],
+                    ],
+                  );
+                },
+                child: showReconnectBanner
+                    ? SizedBox(
+                        key: const ValueKey('reconnect-banner-visible'),
+                        height: reconnectBannerHeight,
+                        child: _buildReconnectBanner(
+                          l10n,
+                          topPadding: topPadding,
+                          tabBarHeight: tabBarHeight,
+                        ),
+                      )
+                    : const SizedBox(
+                        key: ValueKey('reconnect-banner-hidden'),
+                      ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

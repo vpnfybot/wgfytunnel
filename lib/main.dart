@@ -5,11 +5,13 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import 'imported_configs_prefs.dart';
 import 'l10n/app_localizations.dart';
 import 'l10n/language_service.dart';
+import 'qr_config_scanner_page.dart';
 import 'split_tunnel_prefs.dart';
 import 'split_tunnel_settings_page.dart';
 import 'theme_service.dart';
@@ -702,40 +704,37 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     return '$h:$m:$s';
   }
 
-  Future<void> _importConf() async {
+  Future<File> _createManagedConfigFile(String filePrefix) async {
+    final appDirectory = await getApplicationDocumentsDirectory();
+    final configsDirectory = Directory(
+      '${appDirectory.path}${Platform.pathSeparator}imported_configs',
+    );
+
+    if (!await configsDirectory.exists()) {
+      await configsDirectory.create(recursive: true);
+    }
+
+    return File(
+      '${configsDirectory.path}${Platform.pathSeparator}'
+      '${filePrefix}_${DateTime.now().millisecondsSinceEpoch}.conf',
+    );
+  }
+
+  Future<void> _importConfigFile(
+    File file, {
+    String? contentOverride,
+  }) async {
     final l10n = AppLocalizations.of(context);
 
     try {
-      final picked = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        withData: false,
-      );
-
-      if (picked == null || picked.files.isEmpty) {
-        _showMessage(l10n.fileSelectionCancelled);
-        return;
-      }
-
-      final path = picked.files.single.path;
-      if (path == null) {
-        _showMessage(l10n.failedGetFilePath);
-        return;
-      }
-
-      final file = File(path);
-      if (!await file.exists()) {
-        _showMessage(l10n.failedReadFile);
-        return;
-      }
-
       final fileNameLower = file.path.toLowerCase();
       if (!fileNameLower.endsWith('.conf')) {
         _showMessage(l10n.invalidConfig);
         return;
       }
 
-      final content = await _readConfigContent(file);
-      if (content == null) {
+      final content = (contentOverride ?? await _readConfigContent(file))?.trim();
+      if (content == null || content.isEmpty) {
         _showMessage(l10n.failedReadFile);
         return;
       }
@@ -762,6 +761,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         return;
       }
 
+      if (contentOverride != null) {
+        await file.writeAsString(content, flush: true);
+      }
+
       final updatedConfigs = <File>[
         file,
         ..._importedConfigs.where((config) => config.path != file.path),
@@ -782,6 +785,55 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     } catch (e) {
       _showMessage('Error importing file: $e');
     }
+  }
+
+  Future<void> _importConf() async {
+    final l10n = AppLocalizations.of(context);
+
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        withData: false,
+      );
+
+      if (picked == null || picked.files.isEmpty) {
+        _showMessage(l10n.fileSelectionCancelled);
+        return;
+      }
+
+      final path = picked.files.single.path;
+      if (path == null) {
+        _showMessage(l10n.failedGetFilePath);
+        return;
+      }
+
+      final file = File(path);
+      if (!await file.exists()) {
+        _showMessage(l10n.failedReadFile);
+        return;
+      }
+
+      await _importConfigFile(file);
+    } catch (e) {
+      _showMessage('Error importing file: $e');
+    }
+  }
+
+  Future<void> _scanQrConfig() async {
+    final scannedConfig = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (context) => const QrConfigScannerPage(),
+      ),
+    );
+    if (!mounted || scannedConfig == null || scannedConfig.trim().isEmpty) {
+      return;
+    }
+
+    final managedFile = await _createManagedConfigFile('qr_config');
+    await _importConfigFile(
+      managedFile,
+      contentOverride: scannedConfig,
+    );
   }
 
   Future<void> _connectWireGuard() async {
@@ -1144,81 +1196,88 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         final isSelected = _selectedConf?.path == file.path;
         final isPinned = _pinnedConfigPaths.contains(file.path);
         final endpointText = _configEndpointsByPath[file.path] ?? '-';
+        final dismissibleBorderRadius = BorderRadius.circular(16);
+        final dismissDirection = _isConnected
+            ? DismissDirection.startToEnd
+            : DismissDirection.horizontal;
 
-        return Dismissible(
-          key: ValueKey(file.path),
-          direction: DismissDirection.horizontal,
-          background: Container(
-            decoration: BoxDecoration(
-              color: const Color.fromRGBO(255, 179, 0, 1),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            alignment: Alignment.centerLeft,
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                  color: Colors.black,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  isPinned ? 'Открепить' : 'Закрепить',
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          secondaryBackground: Container(
-            decoration: BoxDecoration(
-              color: const Color.fromRGBO(198, 40, 40, 1),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.delete, color: Colors.white),
-                const SizedBox(width: 8),
-                Text(
-                  materialL10n.deleteButtonTooltip,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          confirmDismiss: (direction) async {
-            if (direction == DismissDirection.startToEnd) {
-              await _togglePinnedConfig(file);
-              return false;
-            }
-            return true;
-          },
-          onDismissed: (_) => _removeImportedConfig(file),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(16),
-            child: Ink(
+        return ClipRRect(
+          borderRadius: dismissibleBorderRadius,
+          child: Dismissible(
+            key: ValueKey(file.path),
+            direction: dismissDirection,
+            background: Container(
               decoration: BoxDecoration(
-                color: isSelected
-                    ? colorScheme.primary.withValues(alpha: 0.08)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: itemBorderColor),
+                color: const Color.fromRGBO(255, 179, 0, 1),
+                borderRadius: dismissibleBorderRadius,
               ),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () => _selectImportedConfig(file),
-                onLongPress: () => _showConfigInfoDialog(file),
-                child: ListTile(
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                    color: Colors.black,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isPinned ? 'Открепить' : 'Закрепить',
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            secondaryBackground: Container(
+              decoration: BoxDecoration(
+                color: const Color.fromRGBO(198, 40, 40, 1),
+                borderRadius: dismissibleBorderRadius,
+              ),
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.delete, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text(
+                    materialL10n.deleteButtonTooltip,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            confirmDismiss: (direction) async {
+              if (direction == DismissDirection.startToEnd) {
+                await _togglePinnedConfig(file);
+                return false;
+              }
+              return true;
+            },
+            onDismissed: (_) => _removeImportedConfig(file),
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: dismissibleBorderRadius,
+              clipBehavior: Clip.antiAlias,
+              child: Ink(
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? colorScheme.primary.withValues(alpha: 0.08)
+                      : Colors.transparent,
+                  borderRadius: dismissibleBorderRadius,
+                  border: Border.all(color: itemBorderColor),
+                ),
+                child: InkWell(
+                  borderRadius: dismissibleBorderRadius,
+                  onTap: () => _selectImportedConfig(file),
+                  onLongPress: () => _showConfigInfoDialog(file),
+                  child: ListTile(
                   minTileHeight: 48,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
                   leading: Icon(
@@ -1264,6 +1323,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               ),
             ),
           ),
+        ),
         );
       },
     );
@@ -1285,8 +1345,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     const actionButtonHeight = 56.0;
     const connectionAnimDuration = Duration(milliseconds: 500);
     const connectionAnimCurve = Curves.fastOutSlowIn;
-    final isTunnelActive = _isConnected || _isConnecting;
-    final compactConfigsList = isTunnelActive;
+    const defaultConfigsListHeightFactor = 0.60;
     final selectionWarningText = _selectionWarningText(l10n);
     final connectBlockedBySelection = selectionWarningText != null;
     final canConnect = _selectedConf != null && hasValidConf && !connectBlockedBySelection;
@@ -1332,7 +1391,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => const SplitTunnelSettingsPage(),
+                  builder: (context) => SplitTunnelSettingsPage(
+                    isVpnConnected: () => _isConnected,
+                  ),
                 ),
               ).then((_) {
                 _refreshSplitTunnelSelections();
@@ -1342,179 +1403,179 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          AnimatedSlide(
-            duration: connectionAnimDuration,
-            curve: connectionAnimCurve,
-            offset: isTunnelActive ? const Offset(0, -0.34) : Offset.zero,
-            child: AnimatedOpacity(
-              duration: connectionAnimDuration,
-              curve: connectionAnimCurve,
-              opacity: isTunnelActive ? 1.0 : 0.30,
-              child: Center(child: _buildVpnfyImage(width: 240)),
+      body: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 20),
+                child: _buildVpnfyImage(width: 220),
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final actionButtonsBlockHeight = (actionButtonHeight * 2) + 32.0;
-                      final normalListHeight = constraints.maxHeight > actionButtonsBlockHeight
-                          ? constraints.maxHeight - actionButtonsBlockHeight
-                          : 0.0;
-                      final targetListHeight =
-                          normalListHeight * (compactConfigsList ? 0.60 : 1.0);
-                      final targetTopOffset = normalListHeight - targetListHeight;
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final actionButtonsBlockHeight = (actionButtonHeight * 2) + 32.0;
+                  final availableListHeight = constraints.maxHeight > actionButtonsBlockHeight
+                      ? constraints.maxHeight - actionButtonsBlockHeight
+                      : 0.0;
+                  final targetListHeight =
+                      availableListHeight * defaultConfigsListHeightFactor;
 
-                      return Column(
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          AnimatedContainer(
-                            duration: connectionAnimDuration,
-                            curve: connectionAnimCurve,
-                            height: targetTopOffset,
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              SizedBox(
-                                height: actionButtonHeight,
-                                child: _isConnected
-                                    ? AnimatedSwitcher(
-                                        duration: connectionAnimDuration,
-                                        switchInCurve: connectionAnimCurve,
-                                        switchOutCurve: connectionAnimCurve,
-                                        transitionBuilder: (child, animation) =>
-                                            FadeTransition(opacity: animation, child: child),
-                                        child: Center(
-                                          key: const ValueKey('stats-display'),
-                                          child: Transform.translate(
-                                            offset: const Offset(0, 6),
-                                            child: Text(
-                                              '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}',
-                                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                                fontWeight: FontWeight.w700,
-                                                letterSpacing: 0.5,
-                                              ),
-                                            ),
-                                          ),
+                          SizedBox(
+                            height: actionButtonHeight,
+                            child: _isConnected
+                                ? Center(
+                                    child: Transform.translate(
+                                      offset: const Offset(0, 6),
+                                      child: Text(
+                                        '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}',
+                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 0.5,
                                         ),
-                                      )
-                                    : actionInfoText == null
-                                    ? OutlinedButton(
-                                        onPressed: _importConf,
-                                        style: OutlinedButton.styleFrom(
-                                          minimumSize: const Size.fromHeight(actionButtonHeight),
-                                          padding: EdgeInsets.zero,
-                                          textStyle: actionButtonTextStyle,
-                                          shape: actionButtonShape,
-                                        ),
-                                        child: Text(l10n.importConfig),
-                                      )
-                                    : Center(
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                                          child: Text(
-                                            actionInfoText,
-                                            textAlign: TextAlign.center,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                              color: actionInfoColor,
-                                              fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  )
+                                : actionInfoText == null
+                                ? Row(
+                                    children: [
+                                      Expanded(
+                                        child: Tooltip(
+                                          message: l10n.selectConfFile,
+                                          child: OutlinedButton(
+                                            onPressed: _importConf,
+                                            style: OutlinedButton.styleFrom(
+                                              minimumSize: const Size.fromHeight(actionButtonHeight),
+                                              padding: EdgeInsets.zero,
+                                              textStyle: actionButtonTextStyle,
+                                              shape: actionButtonShape,
                                             ),
+                                            child: const Icon(Icons.insert_drive_file_outlined),
                                           ),
                                         ),
                                       ),
-                              ),
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                height: actionButtonHeight,
-                                child: AnimatedOpacity(
-                                  duration: connectionAnimDuration,
-                                  curve: connectionAnimCurve,
-                                  opacity: connectButtonOpacity,
-                                  child: ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      minimumSize: const Size.fromHeight(actionButtonHeight),
-                                      padding: EdgeInsets.zero,
-                                      backgroundColor: connectButtonBackgroundColor,
-                                      foregroundColor: connectButtonForegroundColor,
-                                      disabledBackgroundColor: connectBlockedBySelection
-                                          ? connectButtonBackgroundColor
-                                          : connectButtonBackgroundColor.withValues(alpha: 0.24),
-                                      disabledForegroundColor: connectBlockedBySelection
-                                          ? connectButtonForegroundColor
-                                          : connectButtonForegroundColor.withValues(alpha: 0.45),
-                                      elevation: 0,
-                                      shape: actionButtonShape,
-                                      textStyle: actionButtonTextStyle,
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Tooltip(
+                                          message: l10n.scanQrCode,
+                                          child: OutlinedButton(
+                                            onPressed: _scanQrConfig,
+                                            style: OutlinedButton.styleFrom(
+                                              minimumSize: const Size.fromHeight(actionButtonHeight),
+                                              padding: EdgeInsets.zero,
+                                              textStyle: actionButtonTextStyle,
+                                              shape: actionButtonShape,
+                                            ),
+                                            child: const Icon(Icons.qr_code_scanner),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      child: Text(
+                                        actionInfoText,
+                                        textAlign: TextAlign.center,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                          color: actionInfoColor,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
                                     ),
-                                    onPressed: _isConnecting
-                                        ? null
-                                        : (_isConnected
-                                            ? _disconnectWireGuard
-                                            : (canConnect ? _connectWireGuard : null)),
-                                    child: _isConnecting
-                                        ? Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              SizedBox(
-                                                width: 20,
-                                                height: 20,
-                                                child: CircularProgressIndicator(
-                                                  strokeWidth: 2.4,
-                                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                                    connectButtonForegroundColor,
-                                                  ),
-                                                ),
+                                  ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: actionButtonHeight,
+                            child: AnimatedOpacity(
+                              duration: connectionAnimDuration,
+                              curve: connectionAnimCurve,
+                              opacity: connectButtonOpacity,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(actionButtonHeight),
+                                  padding: EdgeInsets.zero,
+                                  backgroundColor: connectButtonBackgroundColor,
+                                  foregroundColor: connectButtonForegroundColor,
+                                  disabledBackgroundColor: connectBlockedBySelection
+                                      ? connectButtonBackgroundColor
+                                      : connectButtonBackgroundColor.withValues(alpha: 0.24),
+                                  disabledForegroundColor: connectBlockedBySelection
+                                      ? connectButtonForegroundColor
+                                      : connectButtonForegroundColor.withValues(alpha: 0.45),
+                                  elevation: 0,
+                                  shape: actionButtonShape,
+                                  textStyle: actionButtonTextStyle,
+                                ),
+                                onPressed: _isConnecting
+                                    ? null
+                                    : (_isConnected
+                                        ? _disconnectWireGuard
+                                        : (canConnect ? _connectWireGuard : null)),
+                                child: _isConnecting
+                                    ? Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2.4,
+                                              valueColor: AlwaysStoppedAnimation<Color>(
+                                                connectButtonForegroundColor,
                                               ),
-                                              const SizedBox(width: 10),
-                                              Text(
-                                                _isConnected ? l10n.disconnect : l10n.connect,
-                                                style: const TextStyle(
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                              ),
-                                            ],
-                                          )
-                                        : Text(
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Text(
                                             _isConnected ? l10n.disconnect : l10n.connect,
                                             style: const TextStyle(
                                               fontSize: 16,
                                               fontWeight: FontWeight.w700,
                                             ),
                                           ),
-                                  ),
-                                ),
+                                        ],
+                                      )
+                                    : Text(
+                                        _isConnected ? l10n.disconnect : l10n.connect,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
                               ),
-                              const SizedBox(height: 20),
-                            ],
+                            ),
                           ),
-                          AnimatedContainer(
-                            duration: connectionAnimDuration,
-                            curve: connectionAnimCurve,
-                            height: targetListHeight,
-                            child: _buildImportedConfigsList(),
-                          ),
+                          const SizedBox(height: 20),
                         ],
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const SizedBox.shrink(),
-              ],
+                      ),
+                      SizedBox(
+                        height: targetListHeight,
+                        child: _buildImportedConfigsList(),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            const SizedBox.shrink(),
+          ],
+        ),
       ),
     );
   }

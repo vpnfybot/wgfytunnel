@@ -2,26 +2,61 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "Start Pixel 9a emulator GUI",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\.vscode\\run_pixel_9a.ps1",
+				"-LaunchOnly"
+			],
+			"options": {
+				"env": {
+					"ANDROID_HOME": "${env:LOCALAPPDATA}\\Android\\Sdk",
+					"ANDROID_SDK_ROOT": "${env:LOCALAPPDATA}\\Android\\Sdk"
+				}
+			},
+			"isBackground": true,
+			"group": "build"
+		},
+		{
 			"label": "Run Flutter app on Pixel 9a emulator",
 			"type": "shell",
-			"command": "flutter",
+			"command": "powershell",
 			"args": [
-				"run",
-				"-d",
-				"emulator-5556"
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\.vscode\\run_pixel_9a.ps1"
 			],
+			"options": {
+				"env": {
+					"ANDROID_HOME": "${env:LOCALAPPDATA}\\Android\\Sdk",
+					"ANDROID_SDK_ROOT": "${env:LOCALAPPDATA}\\Android\\Sdk"
+				}
+			},
 			"isBackground": true,
 			"group": "build"
 		},
 		{
 			"label": "Run Flutter app on connected Android device",
 			"type": "shell",
-			"command": "flutter",
+			"command": "${env:USERPROFILE}\\development\\flutter\\bin\\flutter.bat",
 			"args": [
 				"run",
 				"-d",
 				"android"
 			],
+			"options": {
+				"env": {
+					"ANDROID_HOME": "${env:LOCALAPPDATA}\\Android\\Sdk",
+					"ANDROID_SDK_ROOT": "${env:LOCALAPPDATA}\\Android\\Sdk"
+				}
+			},
 			"isBackground": true,
 			"group": "build"
 		}

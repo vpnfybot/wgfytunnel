@@ -61,7 +61,7 @@ class AppLocalizations {
     String get addedSites => _get('Добавленные сайты');
     String get excludedSites => _get('Исключенные сайты');
   String get addDomainHint => _get('example.com');
-  String get domainsNotAdded => _get('Домены не добавлены');
+  String get domainsNotAdded => _get('Сайты не выбраны');
   String get enterCorrectDomain => _get('Введите корректный домен (например, example.com)');
   String get failedGetApps => _get('Не удалось получить список приложений');
   String get errorLoadingApps => _get('Ошибка загрузки приложений');
@@ -92,6 +92,31 @@ class AppLocalizations {
   String get darkTheme => _get('Темная');
   String get english => _get('English');
   String get russian => _get('Русский');
+  String get scanQrCode => _get('Сканировать QR-код');
+  String get reconnectToApplyChangedSettings => _get(
+    'Чтобы применить измененные настройки, переподключите VPN.',
+  );
+  String get aboutTooltip => _get('О приложении и лицензиях');
+  String get aboutTitle => _get('О приложении');
+  String get aboutLicensesIntro => _get(
+    'В этой сборке используются сторонние компоненты с открытыми лицензиями. Ниже перечислены основные встроенные и подключенные библиотеки, влияющие на работу VPN.',
+  );
+  String get aboutLicensesFooter => _get(
+    'Полные тексты лицензий Flutter и подключенных Dart-пакетов можно открыть отдельной кнопкой.',
+  );
+  String get componentUsageLabel => _get('Использование');
+  String get componentAuthorLabel => _get('Автор / правообладатель');
+  String get componentLicenseLabel => _get('Лицензия');
+  String get viewFullLicenses => _get('Все лицензии');
+  String get aboutSingBoxUsage => _get(
+    'Встроенный runtime для маршрутизации доменов и VPN-сценариев на базе sing-box.',
+  );
+  String get aboutLibcoreUsage => _get(
+    'Локальная интеграция libcore/NEKOBOX для запуска встроенного сетевого ядра.',
+  );
+  String get aboutWireGuardUsage => _get(
+    'Android-библиотека, через которую приложение поднимает WireGuard-туннель.',
+  );
 
   String translateRuntimeMessage(String text) {
     if (language == AppLanguage.ru || text.isEmpty) {
@@ -275,8 +300,8 @@ class AppLocalizations {
         return 'Excluded sites';
       case 'example.com':
         return 'example.com';
-      case 'Домены не добавлены':
-        return 'No domains added';
+      case 'Сайты не выбраны':
+        return 'No sites selected';
       case 'Введите корректный домен (например, example.com)':
         return 'Enter a valid domain (e.g., example.com)';
       case 'Не удалось получить список приложений':
@@ -337,6 +362,32 @@ class AppLocalizations {
         return 'English';
       case 'Русский':
         return 'Русский';
+      case 'Сканировать QR-код':
+        return 'Scan QR code';
+      case 'Чтобы применить измененные настройки, переподключите VPN.':
+        return 'Reconnect the VPN to apply the changed settings.';
+      case 'О приложении и лицензиях':
+        return 'About and licenses';
+      case 'О приложении':
+        return 'About';
+      case 'В этой сборке используются сторонние компоненты с открытыми лицензиями. Ниже перечислены основные встроенные и подключенные библиотеки, влияющие на работу VPN.':
+        return 'This build uses third-party open-source components. The main bundled and linked libraries that affect the VPN functionality are listed below.';
+      case 'Полные тексты лицензий Flutter и подключенных Dart-пакетов можно открыть отдельной кнопкой.':
+        return 'You can open the full license texts for Flutter and the bundled Dart packages with the separate button.';
+      case 'Использование':
+        return 'Usage';
+      case 'Автор / правообладатель':
+        return 'Author / rights holder';
+      case 'Лицензия':
+        return 'License';
+      case 'Все лицензии':
+        return 'All licenses';
+      case 'Встроенный runtime для маршрутизации доменов и VPN-сценариев на базе sing-box.':
+        return 'Embedded runtime used for domain routing and VPN scenarios based on sing-box.';
+      case 'Локальная интеграция libcore/NEKOBOX для запуска встроенного сетевого ядра.':
+        return 'Local libcore/NEKOBOX integration used to run the embedded networking core.';
+      case 'Android-библиотека, через которую приложение поднимает WireGuard-туннель.':
+        return 'Android library used by the app to bring up the WireGuard tunnel.';
       default:
         return ruText;
     }
