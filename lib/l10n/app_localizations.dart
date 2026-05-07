@@ -26,6 +26,10 @@ class AppLocalizations {
   String get configPurchaseIntro => _get('Вы можете приобрести конфигурацию в боте');
   String get configPurchaseLink => _get('t.me/vpnfybot');
   String get failedOpenLink => _get('Не удалось открыть ссылку');
+  String get updateAvailableTitle => _get('Доступно обновление');
+  String get updateAvailableMessage => _get('Доступна новая версия приложения. Установить сейчас?');
+  String get updateNow => _get('Обновить');
+  String get later => _get('Позже');
   String get importedConfigs => _get('Импортированные конфигурации');
   String get noImportedConfigs => _get('Конфигурации еще не импортированы');
   String get noFileSelected => _get('Файл не выбран');
@@ -242,6 +246,14 @@ class AppLocalizations {
         return 't.me/vpnfybot';
       case 'Не удалось открыть ссылку':
         return 'Failed to open the link';
+      case 'Доступно обновление':
+        return 'Update available';
+      case 'Доступна новая версия приложения. Установить сейчас?':
+        return 'A new app version is available. Install it now?';
+      case 'Обновить':
+        return 'Update';
+      case 'Позже':
+        return 'Later';
       case 'Импортированные конфигурации':
         return 'Imported configurations';
       case 'Конфигурации еще не импортированы':

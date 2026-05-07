@@ -7,7 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'app_update_service.dart';
 import 'imported_configs_prefs.dart';
 import 'l10n/app_localizations.dart';
 import 'l10n/language_service.dart';
@@ -175,6 +177,7 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
+  static const String _playStoreAppId = 'com.wgfytunnel';
   static const MethodChannel _wireGuardChannel = MethodChannel('wgfytunnel/wireguard');
 
   List<File> _importedConfigs = const [];
@@ -197,6 +200,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   SplitTunnelDomainMode _splitTunnelDomainMode = SplitTunnelDomainMode.all;
   int _selectedAppsCount = 0;
   int _selectedDomainsCount = 0;
+  bool _hasCheckedForAppUpdate = false;
 
   @override
   void initState() {
@@ -205,6 +209,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     _restoreImportedConfigs();
     _refreshSplitTunnelSelections();
     _refreshTunnelStatus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_checkForAppUpdateOnLaunch());
+    });
   }
 
   @override
@@ -222,6 +229,83 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       _refreshSplitTunnelSelections();
       _refreshTunnelStatus();
     }
+  }
+
+  Future<void> _checkForAppUpdateOnLaunch() async {
+    if (_hasCheckedForAppUpdate || !Platform.isAndroid || !mounted) {
+      return;
+    }
+
+    _hasCheckedForAppUpdate = true;
+    final pendingUpdate = await AppUpdateService.checkForUpdate();
+    if (!mounted || pendingUpdate == null) {
+      return;
+    }
+
+    final shouldInstall = await _showAppUpdateDialog();
+    if (!mounted || !shouldInstall) {
+      return;
+    }
+
+    final updateStarted = await AppUpdateService.startUpdate(pendingUpdate);
+    if (updateStarted || !mounted) {
+      return;
+    }
+
+    final storeOpened = await _openPlayStorePage();
+    if (!mounted || storeOpened) {
+      return;
+    }
+
+    _showMessage(AppLocalizations.of(context).failedOpenLink);
+  }
+
+  Future<bool> _showAppUpdateDialog() async {
+    final l10n = AppLocalizations.of(context);
+    final shouldInstall = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final verticalOffset = MediaQuery.sizeOf(dialogContext).height * 0.12;
+        return Transform.translate(
+          offset: Offset(0, -verticalOffset),
+          child: AlertDialog(
+            title: Text(l10n.updateAvailableTitle),
+            content: Text(l10n.updateAvailableMessage),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: Text(l10n.later),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: Text(l10n.updateNow),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    return shouldInstall ?? false;
+  }
+
+  Future<bool> _openPlayStorePage() async {
+    final uris = <Uri>[
+      Uri.parse('market://details?id=$_playStoreAppId'),
+      Uri.parse('https://play.google.com/store/apps/details?id=$_playStoreAppId'),
+    ];
+
+    for (final uri in uris) {
+      try {
+        if (await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+          return true;
+        }
+      } catch (_) {
+        continue;
+      }
+    }
+
+    return false;
   }
 
   Future<void> _refreshSplitTunnelSelections() async {
@@ -727,12 +811,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final l10n = AppLocalizations.of(context);
 
     try {
-      final fileNameLower = file.path.toLowerCase();
-      if (!fileNameLower.endsWith('.conf')) {
-        _showMessage(l10n.invalidConfig);
-        return;
-      }
-
       final content = (contentOverride ?? await _readConfigContent(file))?.trim();
       if (content == null || content.isEmpty) {
         _showMessage(l10n.failedReadFile);
@@ -742,6 +820,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       final parsed = _parseConfigContent(content);
       if (parsed == null) {
         _showMessage(l10n.failedParseConfig);
+        return;
+      }
+
+      if (parsed['isValid'] != true) {
+        _showMessage(l10n.invalidConfig);
         return;
       }
 
