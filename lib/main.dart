@@ -5,11 +5,13 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_update_service.dart';
+import 'endpoint_country_service.dart';
 import 'imported_configs_prefs.dart';
 import 'l10n/app_localizations.dart';
 import 'l10n/language_service.dart';
@@ -179,10 +181,13 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   static const String _playStoreAppId = 'com.wgfytunnel';
   static const MethodChannel _wireGuardChannel = MethodChannel('wgfytunnel/wireguard');
+  static const double _mainActionButtonHeight = 56.0;
 
   List<File> _importedConfigs = const [];
   Set<String> _pinnedConfigPaths = <String>{};
   Map<String, String> _configEndpointsByPath = const <String, String>{};
+  Map<String, EndpointCountryInfo> _configCountriesByPath =
+      const <String, EndpointCountryInfo>{};
   File? _selectedConf;
   Map<String, dynamic>? _parsedConf;
   bool _isConnecting = false;
@@ -201,11 +206,16 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   int _selectedAppsCount = 0;
   int _selectedDomainsCount = 0;
   bool _hasCheckedForAppUpdate = false;
+  String? _appVersionLabel;
+  final Map<String, EndpointCountryInfo?> _countryInfoByLookupKey =
+      <String, EndpointCountryInfo?>{};
+  Set<String> _countryLookupsInFlight = <String>{};
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_loadAppVersionLabel());
     _restoreImportedConfigs();
     _refreshSplitTunnelSelections();
     _refreshTunnelStatus();
@@ -228,6 +238,22 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _refreshSplitTunnelSelections();
       _refreshTunnelStatus();
+    }
+  }
+
+  Future<void> _loadAppVersionLabel() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _appVersionLabel = packageInfo.version;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Failed to load app version: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
 
@@ -266,21 +292,47 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       context: context,
       builder: (dialogContext) {
         final verticalOffset = MediaQuery.sizeOf(dialogContext).height * 0.12;
+        final colorScheme = Theme.of(dialogContext).colorScheme;
         return Transform.translate(
           offset: Offset(0, -verticalOffset),
-          child: AlertDialog(
-            title: Text(l10n.updateAvailableTitle),
-            content: Text(l10n.updateAvailableMessage),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: Text(l10n.later),
+          child: Dialog(
+            insetPadding: const EdgeInsets.symmetric(horizontal: 8),
+            backgroundColor: colorScheme.surface,
+            surfaceTintColor: Colors.transparent,
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              width: double.infinity,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.updateAvailableTitle,
+                      style: Theme.of(dialogContext).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(l10n.updateAvailableMessage),
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(false),
+                          child: Text(l10n.later),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(true),
+                          child: Text(l10n.updateNow),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: Text(l10n.updateNow),
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -518,6 +570,203 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     return _firstNonEmptyValue(peers.first, const ['Endpoint']) ?? '-';
   }
 
+  EndpointCountryInfo? _configCountryInfo(String endpointText, String filePath) {
+    final lookupKey = EndpointCountryService.lookupKeyForEndpoint(endpointText);
+    if (lookupKey == null) {
+      return null;
+    }
+
+    final countryInfo = _configCountriesByPath[filePath];
+    if (countryInfo != null) {
+      return countryInfo;
+    }
+
+    return _countryInfoByLookupKey[lookupKey];
+  }
+
+  bool _isConfigCountryLookupInFlight(String endpointText) {
+    final lookupKey = EndpointCountryService.lookupKeyForEndpoint(endpointText);
+    if (lookupKey == null) {
+      return false;
+    }
+
+    return _countryLookupsInFlight.contains(lookupKey);
+  }
+
+  Future<void> _queueCountryLookupsForConfigs(
+    Iterable<File> configs, {
+    Map<String, String>? endpointsByPath,
+  }) async {
+    for (final file in configs) {
+      unawaited(
+        _resolveCountryForConfig(
+          file,
+          endpointsByPath: endpointsByPath,
+        ),
+      );
+    }
+  }
+
+  Future<void> _resolveCountryForConfig(
+    File file, {
+    Map<String, String>? endpointsByPath,
+  }) async {
+    final endpointText = endpointsByPath?[file.path] ?? _configEndpointsByPath[file.path];
+    if (endpointText == null || endpointText.trim().isEmpty || endpointText == '-') {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        final updatedCountriesByPath =
+            Map<String, EndpointCountryInfo>.from(_configCountriesByPath)
+              ..remove(file.path);
+        _configCountriesByPath = updatedCountriesByPath;
+      });
+      return;
+    }
+
+    final lookupKey = EndpointCountryService.lookupKeyForEndpoint(endpointText);
+    if (lookupKey == null) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        final updatedCountriesByPath =
+            Map<String, EndpointCountryInfo>.from(_configCountriesByPath)
+              ..remove(file.path);
+        _configCountriesByPath = updatedCountriesByPath;
+      });
+      return;
+    }
+
+    if (_countryInfoByLookupKey.containsKey(lookupKey)) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _configCountriesByPath = _updatedCountriesByPathForLookupKey(
+          lookupKey,
+          _countryInfoByLookupKey[lookupKey],
+          endpointsByPath: endpointsByPath,
+        );
+      });
+      return;
+    }
+
+    if (_countryLookupsInFlight.contains(lookupKey)) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _countryLookupsInFlight = Set<String>.from(_countryLookupsInFlight)
+          ..add(lookupKey);
+      });
+    }
+
+    final countryInfo = await EndpointCountryService.lookupCountryForEndpoint(
+      endpointText,
+    );
+    _countryInfoByLookupKey[lookupKey] = countryInfo;
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _countryLookupsInFlight = Set<String>.from(_countryLookupsInFlight)
+        ..remove(lookupKey);
+      _configCountriesByPath = _updatedCountriesByPathForLookupKey(
+        lookupKey,
+        countryInfo,
+        endpointsByPath: endpointsByPath,
+      );
+    });
+  }
+
+  Map<String, EndpointCountryInfo> _updatedCountriesByPathForLookupKey(
+    String lookupKey,
+    EndpointCountryInfo? countryInfo, {
+    Map<String, String>? endpointsByPath,
+  }) {
+    final updatedCountriesByPath =
+        Map<String, EndpointCountryInfo>.from(_configCountriesByPath);
+    final activeEndpointsByPath = endpointsByPath ?? _configEndpointsByPath;
+
+    for (final entry in activeEndpointsByPath.entries) {
+      final entryLookupKey = EndpointCountryService.lookupKeyForEndpoint(entry.value);
+      if (entryLookupKey != lookupKey) {
+        continue;
+      }
+
+      if (countryInfo == null) {
+        updatedCountriesByPath.remove(entry.key);
+      } else {
+        updatedCountriesByPath[entry.key] = countryInfo;
+      }
+    }
+
+    return updatedCountriesByPath;
+  }
+
+  Widget _buildConfigCountryBadge({
+    required String filePath,
+    required String endpointText,
+    required bool isSelected,
+    required ColorScheme colorScheme,
+  }) {
+    final countryInfo = _configCountryInfo(endpointText, filePath);
+    final isLookupInFlight = _isConfigCountryLookupInFlight(endpointText);
+    final foregroundColor = isSelected
+        ? colorScheme.primary
+        : colorScheme.onSurfaceVariant;
+
+    if (isLookupInFlight) {
+      return SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.2,
+              valueColor: AlwaysStoppedAnimation<Color>(foregroundColor),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (countryInfo == null) {
+      return SizedBox(
+        width: 44,
+        height: 44,
+        child: Icon(
+          Icons.public_outlined,
+          color: foregroundColor,
+        ),
+      );
+    }
+
+    return Tooltip(
+      message: countryInfo.countryName,
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: Text(
+            countryInfo.flagEmoji,
+            style: const TextStyle(fontSize: 24, height: 1),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<Map<String, String>> _buildConfigEndpointsMap(
     List<File> configs, {
     File? selectedConfig,
@@ -624,6 +873,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       _parsedConf = parsedConfig;
       _isLoadingImportedConfigs = false;
     });
+
+    unawaited(
+      _queueCountryLookupsForConfigs(
+        orderedConfigs,
+        endpointsByPath: endpointsByPath,
+      ),
+    );
   }
 
   Future<void> _selectImportedConfig(File file) async {
@@ -652,6 +908,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       _selectedConf = file;
       _parsedConf = parsedConfig;
     });
+    unawaited(_queueCountryLookupsForConfigs([file]));
     await ImportedConfigsPrefs.saveSelectedPath(file.path);
   }
 
@@ -663,6 +920,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         .toList(growable: false);
     final updatedEndpointsByPath = Map<String, String>.from(_configEndpointsByPath)
       ..remove(file.path);
+    final updatedCountriesByPath =
+        Map<String, EndpointCountryInfo>.from(_configCountriesByPath)
+          ..remove(file.path);
     final removedSelectedConfig = _selectedConf?.path == file.path;
     final nextSelectedConfig = removedSelectedConfig
         ? (updatedConfigs.isNotEmpty ? updatedConfigs.first : null)
@@ -673,6 +933,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       _importedConfigs = updatedConfigs;
       _pinnedConfigPaths = updatedPinnedPaths;
       _configEndpointsByPath = updatedEndpointsByPath;
+      _configCountriesByPath = updatedCountriesByPath;
       _selectedConf = nextSelectedConfig;
       _parsedConf = nextParsedConfig;
     });
@@ -864,6 +1125,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _parsedConf = parsed;
         _isLoadingImportedConfigs = false;
       });
+      unawaited(
+        _queueCountryLookupsForConfigs(
+          [file],
+          endpointsByPath: updatedEndpointsByPath,
+        ),
+      );
       await _persistImportedConfigs(updatedConfigs, selectedConfig: file);
     } catch (e) {
       _showMessage('Error importing file: $e');
@@ -1257,6 +1524,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }
 
   Widget _buildImportedConfigsList() {
+    final l10n = AppLocalizations.of(context);
     final materialL10n = MaterialLocalizations.of(context);
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
@@ -1268,7 +1536,19 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
 
     if (_importedConfigs.isEmpty) {
-      return const SizedBox.shrink();
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Text(
+            l10n.importOrScanWireGuardConfig,
+            textAlign: TextAlign.center,
+            style: textTheme.titleMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      );
     }
 
     return ListView.separated(
@@ -1279,6 +1559,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         final isSelected = _selectedConf?.path == file.path;
         final isPinned = _pinnedConfigPaths.contains(file.path);
         final endpointText = _configEndpointsByPath[file.path] ?? '-';
+        final countryBadge = _buildConfigCountryBadge(
+          filePath: file.path,
+          endpointText: endpointText,
+          isSelected: isSelected,
+          colorScheme: colorScheme,
+        );
         final dismissibleBorderRadius = BorderRadius.circular(16);
         final dismissDirection = _isConnected
             ? DismissDirection.startToEnd
@@ -1360,53 +1646,65 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                   borderRadius: dismissibleBorderRadius,
                   onTap: () => _selectImportedConfig(file),
                   onLongPress: () => _showConfigInfoDialog(file),
-                  child: ListTile(
-                  minTileHeight: 48,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-                  leading: Icon(
-                    Icons.insert_drive_file_outlined,
-                    color: isSelected
-                        ? colorScheme.primary
-                        : colorScheme.onSurfaceVariant,
-                  ),
-                  title: Text(
-                    _configName(file),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: textTheme.titleMedium,
-                  ),
-                  subtitle: Text(
-                    endpointText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (isPinned) ...[
-                        Icon(
-                          Icons.push_pin,
-                          color: colorScheme.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      Icon(
-                        isSelected ? Icons.check_circle : Icons.chevron_right,
-                        color: isSelected
-                            ? colorScheme.primary
-                            : colorScheme.onSurfaceVariant,
+                  child: SizedBox(
+                    height: _mainActionButtonHeight,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        children: [
+                          countryBadge,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _configName(file),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textTheme.titleMedium,
+                                ),
+                                Text(
+                                  endpointText,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textTheme.bodyMedium?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (isPinned) ...[
+                                Icon(
+                                  Icons.push_pin,
+                                  color: colorScheme.primary,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                              Icon(
+                                isSelected ? Icons.check_circle : Icons.chevron_right,
+                                color: isSelected
+                                    ? colorScheme.primary
+                                    : colorScheme.onSurfaceVariant,
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
         );
       },
     );
@@ -1425,7 +1723,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final connectButtonForegroundColor = showActiveTunnelUi
       ? Colors.white
       : (isDark ? Colors.black : Colors.white);
-    const actionButtonHeight = 56.0;
     const connectionAnimDuration = Duration(milliseconds: 500);
     const connectionAnimCurve = Curves.fastOutSlowIn;
     const defaultConfigsListHeightFactor = 0.60;
@@ -1500,7 +1797,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final actionButtonsBlockHeight = (actionButtonHeight * 2) + 32.0;
+                  final actionButtonsBlockHeight = (_mainActionButtonHeight * 2) + 32.0;
                   final availableListHeight = constraints.maxHeight > actionButtonsBlockHeight
                       ? constraints.maxHeight - actionButtonsBlockHeight
                       : 0.0;
@@ -1515,7 +1812,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           SizedBox(
-                            height: actionButtonHeight,
+                            height: _mainActionButtonHeight,
                             child: _isConnected
                                 ? Center(
                                     child: Transform.translate(
@@ -1538,7 +1835,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                           child: OutlinedButton(
                                             onPressed: _importConf,
                                             style: OutlinedButton.styleFrom(
-                                              minimumSize: const Size.fromHeight(actionButtonHeight),
+                                              minimumSize: const Size.fromHeight(_mainActionButtonHeight),
                                               padding: EdgeInsets.zero,
                                               textStyle: actionButtonTextStyle,
                                               shape: actionButtonShape,
@@ -1554,7 +1851,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                           child: OutlinedButton(
                                             onPressed: _scanQrConfig,
                                             style: OutlinedButton.styleFrom(
-                                              minimumSize: const Size.fromHeight(actionButtonHeight),
+                                              minimumSize: const Size.fromHeight(_mainActionButtonHeight),
                                               padding: EdgeInsets.zero,
                                               textStyle: actionButtonTextStyle,
                                               shape: actionButtonShape,
@@ -1583,14 +1880,14 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                           ),
                           const SizedBox(height: 12),
                           SizedBox(
-                            height: actionButtonHeight,
+                            height: _mainActionButtonHeight,
                             child: AnimatedOpacity(
                               duration: connectionAnimDuration,
                               curve: connectionAnimCurve,
                               opacity: connectButtonOpacity,
                               child: ElevatedButton(
                                 style: ElevatedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(actionButtonHeight),
+                                  minimumSize: const Size.fromHeight(_mainActionButtonHeight),
                                   padding: EdgeInsets.zero,
                                   backgroundColor: connectButtonBackgroundColor,
                                   foregroundColor: connectButtonForegroundColor,
@@ -1656,7 +1953,27 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               ),
             ),
             const SizedBox(height: 12),
-            const SizedBox.shrink(),
+            if (_appVersionLabel != null)
+              Padding(
+                padding: EdgeInsets.only(
+                  left: MediaQuery.sizeOf(context).width * 0.08,
+                  bottom: 10,
+                ),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _appVersionLabel!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontSize:
+                          (Theme.of(context).textTheme.bodySmall?.fontSize ?? 12) + 4,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

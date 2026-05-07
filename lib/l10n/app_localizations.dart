@@ -27,11 +27,12 @@ class AppLocalizations {
   String get configPurchaseLink => _get('t.me/vpnfybot');
   String get failedOpenLink => _get('Не удалось открыть ссылку');
   String get updateAvailableTitle => _get('Доступно обновление');
-  String get updateAvailableMessage => _get('Доступна новая версия приложения. Установить сейчас?');
+  String get updateAvailableMessage => _get('Доступна новая версия приложения. Обновить сейчас?');
   String get updateNow => _get('Обновить');
   String get later => _get('Позже');
   String get importedConfigs => _get('Импортированные конфигурации');
   String get noImportedConfigs => _get('Конфигурации еще не импортированы');
+  String get importOrScanWireGuardConfig => _get('Импортируйте или отсканируйте конфигурацию WireGuard');
   String get noFileSelected => _get('Файл не выбран');
   String get splitTunneling => _get('Раздельное туннелирование');
   String get apps => _get('Приложения');
@@ -248,8 +249,8 @@ class AppLocalizations {
         return 'Failed to open the link';
       case 'Доступно обновление':
         return 'Update available';
-      case 'Доступна новая версия приложения. Установить сейчас?':
-        return 'A new app version is available. Install it now?';
+      case 'Доступна новая версия приложения. Обновить сейчас?':
+        return 'A new app version is available. Update now?';
       case 'Обновить':
         return 'Update';
       case 'Позже':
@@ -258,6 +259,8 @@ class AppLocalizations {
         return 'Imported configurations';
       case 'Конфигурации еще не импортированы':
         return 'No imported configurations yet';
+      case 'Импортируйте или отсканируйте конфигурацию WireGuard':
+        return 'Import or scan a WireGuard configuration';
       case 'Файл не выбран':
         return 'No file selected';
       case 'Раздельное туннелирование':

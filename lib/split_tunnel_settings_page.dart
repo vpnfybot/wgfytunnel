@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -70,7 +71,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                   onPressed: () {
                     _showFullLicensesPage(
                       pageContext,
-                      applicationName: l10n.appTitle,
                     );
                   },
                   child: Text(l10n.viewFullLicenses),
@@ -137,36 +137,11 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   }
 
   Future<void> _showFullLicensesPage(
-    BuildContext context, {
-    required String applicationName,
-  }) {
-    final theme = Theme.of(context);
-    final hiddenTitleStyle =
-        (theme.appBarTheme.titleTextStyle ?? theme.textTheme.titleLarge ?? const TextStyle())
-            .copyWith(
-              color: Colors.transparent,
-              fontSize: 0,
-            );
-    final hiddenToolbarStyle =
-        (theme.appBarTheme.toolbarTextStyle ?? theme.textTheme.titleMedium ?? const TextStyle())
-            .copyWith(
-              color: Colors.transparent,
-              fontSize: 0,
-            );
-
+    BuildContext context,
+  ) {
     return Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => Theme(
-          data: theme.copyWith(
-            appBarTheme: theme.appBarTheme.copyWith(
-              titleTextStyle: hiddenTitleStyle,
-              toolbarTextStyle: hiddenToolbarStyle,
-            ),
-          ),
-          child: LicensePage(
-            applicationName: applicationName,
-          ),
-        ),
+        builder: (_) => const _FullLicensesPage(),
       ),
     );
   }
@@ -1011,6 +986,170 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _LicensePackageGroup {
+  const _LicensePackageGroup({
+    required this.packageName,
+    required this.entries,
+  });
+
+  final String packageName;
+  final List<LicenseEntry> entries;
+}
+
+class _FullLicensesPage extends StatefulWidget {
+  const _FullLicensesPage();
+
+  @override
+  State<_FullLicensesPage> createState() => _FullLicensesPageState();
+}
+
+class _FullLicensesPageState extends State<_FullLicensesPage> {
+  late final Future<List<_LicensePackageGroup>> _licenseGroupsFuture =
+      _loadLicenseGroups();
+
+  Future<List<_LicensePackageGroup>> _loadLicenseGroups() async {
+    final groupedEntries = <String, List<LicenseEntry>>{};
+
+    await for (final entry in LicenseRegistry.licenses) {
+      for (final packageName in entry.packages) {
+        groupedEntries.putIfAbsent(packageName, () => <LicenseEntry>[]).add(entry);
+      }
+    }
+
+    final groups = groupedEntries.entries
+        .map(
+          (entry) => _LicensePackageGroup(
+            packageName: entry.key,
+            entries: List<LicenseEntry>.unmodifiable(entry.value),
+          ),
+        )
+        .toList(growable: false)
+      ..sort(
+        (left, right) => left.packageName.toLowerCase().compareTo(
+          right.packageName.toLowerCase(),
+        ),
+      );
+
+    return groups;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final materialL10n = MaterialLocalizations.of(context);
+
+    return Scaffold(
+      appBar: AppBar(),
+      body: FutureBuilder<List<_LicensePackageGroup>>(
+        future: _licenseGroupsFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(snapshot.error.toString(), textAlign: TextAlign.center),
+              ),
+            );
+          }
+
+          final licenseGroups = snapshot.data ?? const <_LicensePackageGroup>[];
+          if (licenseGroups.isEmpty) {
+            return const SizedBox.shrink();
+          }
+
+          return ListView.separated(
+            itemCount: licenseGroups.length,
+            separatorBuilder: (context, index) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final group = licenseGroups[index];
+              return ListTile(
+                title: Text(group.packageName),
+                subtitle: Text(
+                  materialL10n.licensesPackageDetailText(group.entries.length),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) => _PackageLicensesPage(group: group),
+                    ),
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PackageLicensesPage extends StatelessWidget {
+  const _PackageLicensesPage({required this.group});
+
+  final _LicensePackageGroup group;
+
+  @override
+  Widget build(BuildContext context) {
+    final licenseWidgets = <Widget>[];
+
+    for (var entryIndex = 0; entryIndex < group.entries.length; entryIndex += 1) {
+      final entry = group.entries[entryIndex];
+      final paragraphs = entry.paragraphs.toList(growable: false);
+
+      if (entryIndex > 0) {
+        licenseWidgets.add(
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 18),
+            child: Divider(),
+          ),
+        );
+      }
+
+      for (final paragraph in paragraphs) {
+        if (paragraph.indent == LicenseParagraph.centeredIndent) {
+          licenseWidgets.add(
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Text(
+                paragraph.text,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+          );
+          continue;
+        }
+
+        licenseWidgets.add(
+          Padding(
+            padding: EdgeInsetsDirectional.only(
+              top: 8,
+              start: 16.0 * paragraph.indent,
+            ),
+            child: Text(paragraph.text),
+          ),
+        );
+      }
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(group.packageName),
+      ),
+      body: SelectionArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          children: licenseWidgets,
+        ),
       ),
     );
   }
