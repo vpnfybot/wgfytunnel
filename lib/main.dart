@@ -1577,7 +1577,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             direction: dismissDirection,
             background: Container(
               decoration: BoxDecoration(
-                color: const Color.fromRGBO(255, 179, 0, 1),
+                color: Colors.transparent,
                 borderRadius: dismissibleBorderRadius,
               ),
               alignment: Alignment.centerLeft,
@@ -1587,13 +1587,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                 children: [
                   Icon(
                     isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                    color: Colors.black,
+                    color: const Color.fromRGBO(255, 179, 0, 1),
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    isPinned ? 'Открепить' : 'Закрепить',
+                    isPinned ? l10n.unpinConfig : l10n.pinConfig,
                     style: const TextStyle(
-                      color: Colors.black,
+                      color: Color.fromRGBO(255, 179, 0, 1),
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -1602,7 +1602,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             ),
             secondaryBackground: Container(
               decoration: BoxDecoration(
-                color: const Color.fromRGBO(198, 40, 40, 1),
+                color: Colors.transparent,
                 borderRadius: dismissibleBorderRadius,
               ),
               alignment: Alignment.centerRight,
@@ -1610,12 +1610,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.delete, color: Colors.white),
+                  const Icon(Icons.delete, color: Color.fromRGBO(198, 40, 40, 1)),
                   const SizedBox(width: 8),
                   Text(
                     materialL10n.deleteButtonTooltip,
                     style: const TextStyle(
-                      color: Colors.white,
+                      color: Color.fromRGBO(198, 40, 40, 1),
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -1725,7 +1725,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       : (isDark ? Colors.black : Colors.white);
     const connectionAnimDuration = Duration(milliseconds: 500);
     const connectionAnimCurve = Curves.fastOutSlowIn;
-    const defaultConfigsListHeightFactor = 0.60;
+    const defaultConfigsListHeightFactor = 1.0;
     final selectionWarningText = _selectionWarningText(l10n);
     final connectBlockedBySelection = selectionWarningText != null;
     final canConnect = _selectedConf != null && hasValidConf && !connectBlockedBySelection;
@@ -1906,37 +1906,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                     : (_isConnected
                                         ? _disconnectWireGuard
                                         : (canConnect ? _connectWireGuard : null)),
-                                child: _isConnecting
-                                    ? Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          SizedBox(
-                                            width: 20,
-                                            height: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2.4,
-                                              valueColor: AlwaysStoppedAnimation<Color>(
-                                                connectButtonForegroundColor,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Text(
-                                            _isConnected ? l10n.disconnect : l10n.connect,
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ],
-                                      )
-                                    : Text(
-                                        _isConnected ? l10n.disconnect : l10n.connect,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
+                                child: Text(
+                                  _isConnected ? l10n.disconnect : l10n.connect,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
                               ),
                             ),
                           ),

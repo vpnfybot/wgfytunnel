@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import 'l10n/app_localizations.dart';
-
 class QrConfigScannerPage extends StatefulWidget {
   const QrConfigScannerPage({super.key});
 
@@ -11,6 +9,9 @@ class QrConfigScannerPage extends StatefulWidget {
 }
 
 class _QrConfigScannerPageState extends State<QrConfigScannerPage> {
+  static const double _scanFrameSize = 320;
+  static const double _scanOverlayOpacity = 0.2;
+
   final MobileScannerController _controller = MobileScannerController(
     formats: const [BarcodeFormat.qrCode],
   );
@@ -45,15 +46,54 @@ class _QrConfigScannerPageState extends State<QrConfigScannerPage> {
     }
   }
 
+  Widget _buildScanOverlay() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final leftInset = (constraints.maxWidth - _scanFrameSize) / 2;
+        final topInset = (constraints.maxHeight - _scanFrameSize) / 2;
+        final overlayColor = Colors.black.withValues(alpha: _scanOverlayOpacity);
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned(
+              left: 0,
+              top: 0,
+              right: 0,
+              height: topInset.clamp(0, double.infinity),
+              child: ColoredBox(color: overlayColor),
+            ),
+            Positioned(
+              left: 0,
+              top: topInset,
+              width: leftInset.clamp(0, double.infinity),
+              height: _scanFrameSize,
+              child: ColoredBox(color: overlayColor),
+            ),
+            Positioned(
+              right: 0,
+              top: topInset,
+              width: leftInset.clamp(0, double.infinity),
+              height: _scanFrameSize,
+              child: ColoredBox(color: overlayColor),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: topInset.clamp(0, double.infinity),
+              child: ColoredBox(color: overlayColor),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text(l10n.scanQrCode),
-      ),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -61,18 +101,7 @@ class _QrConfigScannerPageState extends State<QrConfigScannerPage> {
             controller: _controller,
             onDetect: _handleDetection,
           ),
-          IgnorePointer(
-            child: Center(
-              child: Container(
-                width: 240,
-                height: 240,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white, width: 3),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-              ),
-            ),
-          ),
+          IgnorePointer(child: _buildScanOverlay()),
         ],
       ),
     );

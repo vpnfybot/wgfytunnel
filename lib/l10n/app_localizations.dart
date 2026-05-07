@@ -33,6 +33,8 @@ class AppLocalizations {
   String get importedConfigs => _get('Импортированные конфигурации');
   String get noImportedConfigs => _get('Конфигурации еще не импортированы');
   String get importOrScanWireGuardConfig => _get('Импортируйте или отсканируйте конфигурацию WireGuard');
+  String get pinConfig => _get('Закрепить');
+  String get unpinConfig => _get('Открепить');
   String get noFileSelected => _get('Файл не выбран');
   String get splitTunneling => _get('Раздельное туннелирование');
   String get apps => _get('Приложения');
@@ -261,6 +263,10 @@ class AppLocalizations {
         return 'No imported configurations yet';
       case 'Импортируйте или отсканируйте конфигурацию WireGuard':
         return 'Import or scan a WireGuard configuration';
+      case 'Закрепить':
+        return 'Pin';
+      case 'Открепить':
+        return 'Unpin';
       case 'Файл не выбран':
         return 'No file selected';
       case 'Раздельное туннелирование':
