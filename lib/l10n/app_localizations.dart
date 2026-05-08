@@ -76,6 +76,7 @@ class AppLocalizations {
   String get failedGetFilePath => _get('Не удалось получить путь к файлу');
   String get failedReadFile => _get('Не удалось прочитать файл');
   String get configAlreadyImported => _get('Конфигурация уже импортирована');
+  String get configDialogTitle => _get('Настройки конфигурации');
   String get configInfoTitle => _get('Информация о конфигурации');
   String get configNameLabel => _get('Имя');
   String get configPathLabel => _get('Путь');
@@ -86,6 +87,13 @@ class AppLocalizations {
   String get configPeersCount => _get('Пиров');
   String get configInterfaceSection => _get('Интерфейс');
   String get configPeerSection => _get('Пир');
+  String get save => _get('Сохранить');
+  String get close => _get('Закрыть');
+  String get configRenameEmpty => _get('Введите имя конфигурации');
+  String get configRenameInvalid => _get('Имя содержит недопустимые символы');
+  String get configRenameExists => _get('Конфигурация с таким именем уже существует');
+  String get configRenameFailed => _get('Не удалось переименовать конфигурацию');
+  String get configSaveFailed => _get('Не удалось сохранить изменения конфигурации');
   String get invalidConfig => _get('Некорректная конфигурация WireGuard');
   String get failedParseConfig => _get('Не удалось разобрать конфигурацию');
   String get failedStartTunnel => _get('Не удалось запустить туннель');
@@ -337,6 +345,8 @@ class AppLocalizations {
         return 'Failed to read file';
       case 'Конфигурация уже импортирована':
         return 'Configuration already imported';
+      case 'Настройки конфигурации':
+        return 'Configuration settings';
       case 'Информация о конфигурации':
         return 'Configuration details';
       case 'Имя':
@@ -357,6 +367,20 @@ class AppLocalizations {
         return 'Interface';
       case 'Пир':
         return 'Peer';
+      case 'Сохранить':
+        return 'Save';
+      case 'Закрыть':
+        return 'Close';
+      case 'Введите имя конфигурации':
+        return 'Enter a configuration name';
+      case 'Имя содержит недопустимые символы':
+        return 'The name contains invalid characters';
+      case 'Конфигурация с таким именем уже существует':
+        return 'A configuration with this name already exists';
+      case 'Не удалось переименовать конфигурацию':
+        return 'Failed to rename the configuration';
+      case 'Не удалось сохранить изменения конфигурации':
+        return 'Failed to save configuration changes';
       case 'Некорректная конфигурация WireGuard':
         return 'Invalid WireGuard configuration';
       case 'Не удалось разобрать конфигурацию':

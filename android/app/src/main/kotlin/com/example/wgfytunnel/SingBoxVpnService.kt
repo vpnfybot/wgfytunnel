@@ -1,7 +1,6 @@
 package com.example.wgfytunnel
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
@@ -18,16 +17,18 @@ import libcore.Libcore
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 class SingBoxVpnService : VpnService() {
     companion object {
         const val ACTION_START = "com.example.wgfytunnel.action.START_SINGBOX"
         const val ACTION_STOP = "com.example.wgfytunnel.action.STOP_SINGBOX"
+        const val ACTION_RESTORE_NOTIFICATION = "com.example.wgfytunnel.action.RESTORE_SINGBOX_NOTIFICATION"
         const val EXTRA_CONFIG_JSON = "config_json"
         const val EXTRA_SPLIT_MODE = "split_mode"
         const val EXTRA_SELECTED_PACKAGES = "selected_packages"
 
-        private const val CHANNEL_ID = "wgfytunnel_singbox"
         private const val NOTIFICATION_ID = 1002
 
         @Volatile
@@ -40,12 +41,17 @@ class SingBoxVpnService : VpnService() {
     private var tunInterface: ParcelFileDescriptor? = null
     private var splitMode: SplitTunnelMode = SplitTunnelMode.ALL
     private var selectedPackages: Set<String> = emptySet()
+    private val notificationExecutor = Executors.newSingleThreadScheduledExecutor()
+    private var notificationUpdateTask: ScheduledFuture<*>? = null
+    private var connectedAtElapsedRealtime: Long? = null
+    private var notificationRxTotal: Long = 0L
+    private var notificationTxTotal: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
         trace("SingBoxVpnService.onCreate")
         LibcoreBridge.currentVpnService = this
-        createNotificationChannel()
+        TunnelNotificationSupport.ensureChannel(this)
         trace("SingBoxVpnService.onCreate completed")
     }
 
@@ -66,6 +72,16 @@ class SingBoxVpnService : VpnService() {
                 return START_NOT_STICKY
             }
 
+            ACTION_RESTORE_NOTIFICATION -> {
+                if (!isActive) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+
+                startForegroundNotification(buildTunnelNotification("Туннель подключен"))
+                return START_STICKY
+            }
+
             ACTION_START -> {
                 val configJson = intent.getStringExtra(EXTRA_CONFIG_JSON)
                 if (configJson.isNullOrBlank()) {
@@ -82,17 +98,14 @@ class SingBoxVpnService : VpnService() {
 
                 try {
                     trace("Building foreground notification")
-                    val notification = buildNotification("Запуск sing-box")
+                    val notification = buildTunnelNotification(
+                        "Туннель подключается",
+                        elapsedMs = 0L,
+                        rxBytes = 0L,
+                        txBytes = 0L,
+                    )
                     trace("Calling startForeground")
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                        startForeground(
-                            NOTIFICATION_ID,
-                            notification,
-                            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
-                        )
-                    } else {
-                        startForeground(NOTIFICATION_ID, notification)
-                    }
+                    startForegroundNotification(notification)
                     trace("startForeground completed")
                 } catch (t: Throwable) {
                     Log.e("SingBox", "startForeground failed", t)
@@ -154,12 +167,21 @@ class SingBoxVpnService : VpnService() {
         stopBox()
         SingBoxRuntimeState.stopped(this)
         LibcoreBridge.currentVpnService = null
+        notificationExecutor.shutdownNow()
         executor.shutdown()
         super.onDestroy()
     }
 
     override fun onRevoke() {
         stopSelf()
+    }
+
+    fun refreshNotificationIfActive() {
+        if (!isActive) {
+            return
+        }
+
+        updateNotification("Туннель подключен")
     }
 
     private fun applyPackageSelection(builder: Builder) {
@@ -187,37 +209,6 @@ class SingBoxVpnService : VpnService() {
         }
     }
 
-    private fun buildNotification(text: String): Notification {
-        val openAppIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-
-        return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("wgfytunnel")
-            .setContentText(text)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .build()
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = getSystemService(NotificationManager::class.java) ?: return
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "wgfytunnel VPN",
-            NotificationManager.IMPORTANCE_LOW,
-        )
-        manager.createNotificationChannel(channel)
-    }
-
     private fun startBox(configJson: String) {
         try {
             trace("Starting embedded sing-box instance")
@@ -229,10 +220,17 @@ class SingBoxVpnService : VpnService() {
             trace("BoxInstance.setAsMain completed")
             instance.start()
             trace("BoxInstance.start completed")
+            runCatching {
+                instance.setV2rayStats(SingBoxConfig.proxyTag)
+            }
             boxInstance = instance
+            connectedAtElapsedRealtime = SystemClock.elapsedRealtime()
+            notificationRxTotal = 0L
+            notificationTxTotal = 0L
+            startNotificationUpdates()
             isActive = true
             SingBoxRuntimeState.started(this)
-            updateNotification("VPN sing-box подключен")
+            updateNotification("Туннель подключен")
             LibcoreBridge.startController.started()
         } catch (t: Throwable) {
             Log.e("SingBox", "Failed to start embedded sing-box", t)
@@ -264,9 +262,50 @@ class SingBoxVpnService : VpnService() {
         closeRuntime(keepForeground = false)
     }
 
+    private fun startNotificationUpdates() {
+        if (notificationUpdateTask != null) {
+            return
+        }
+
+        notificationUpdateTask = notificationExecutor.scheduleAtFixedRate(
+            { refreshNotificationStats() },
+            20L,
+            20L,
+            TimeUnit.SECONDS,
+        )
+    }
+
+    private fun stopNotificationUpdates() {
+        notificationUpdateTask?.cancel(true)
+        notificationUpdateTask = null
+    }
+
+    private fun refreshNotificationStats() {
+        val instance = boxInstance ?: return
+        val txDelta = runCatching {
+            instance.queryStats(SingBoxConfig.proxyTag, "uplink")
+        }.getOrDefault(0L).coerceAtLeast(0L)
+        val rxDelta = runCatching {
+            instance.queryStats(SingBoxConfig.proxyTag, "downlink")
+        }.getOrDefault(0L).coerceAtLeast(0L)
+
+        notificationTxTotal += txDelta
+        notificationRxTotal += rxDelta
+        updateNotification("Туннель подключен")
+    }
+
+    private fun currentElapsedMs(): Long {
+        val connectedAt = connectedAtElapsedRealtime ?: return 0L
+        return SystemClock.elapsedRealtime() - connectedAt
+    }
+
     private fun closeRuntime(keepForeground: Boolean) {
         isActive = false
         LibcoreBridge.underlyingNetwork = null
+        stopNotificationUpdates()
+        connectedAtElapsedRealtime = null
+        notificationRxTotal = 0L
+        notificationTxTotal = 0L
 
         runCatching {
             boxInstance?.close()
@@ -291,6 +330,49 @@ class SingBoxVpnService : VpnService() {
 
     private fun updateNotification(text: String) {
         val notificationManager = getSystemService(NotificationManager::class.java) ?: return
-        notificationManager.notify(NOTIFICATION_ID, buildNotification(text))
+        notificationManager.notify(
+            NOTIFICATION_ID,
+            buildTunnelNotification(text),
+        )
+    }
+
+    private fun buildTunnelNotification(
+        text: String,
+        elapsedMs: Long = currentElapsedMs(),
+        rxBytes: Long = notificationRxTotal,
+        txBytes: Long = notificationTxTotal,
+    ): Notification {
+        return TunnelNotificationSupport.buildNotification(
+            context = this,
+            statusText = text,
+            elapsedMs = elapsedMs,
+            rxBytes = rxBytes,
+            txBytes = txBytes,
+            deleteIntent = notificationDeleteIntent(),
+        )
+    }
+
+    private fun startForegroundNotification(notification: Notification) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun notificationDeleteIntent(): PendingIntent {
+        val intent = Intent(this, SingBoxVpnService::class.java).apply {
+            action = ACTION_RESTORE_NOTIFICATION
+        }
+        return PendingIntent.getService(
+            this,
+            NOTIFICATION_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 }

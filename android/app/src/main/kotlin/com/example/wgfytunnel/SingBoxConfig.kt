@@ -11,7 +11,7 @@ object SingBoxConfig {
     private const val defaultDirectDns = "1.1.1.1"
     private const val defaultRemoteDns = "tls://8.8.8.8"
     private const val directTag = "direct"
-    private const val proxyTag = "proxy"
+    const val proxyTag = "proxy"
     private const val dnsLocalTag = "dns-local"
     private const val dnsDirectTag = "dns-direct"
     private const val dnsRemoteTag = "dns-remote"

@@ -1,9 +1,12 @@
 package com.example.wgfytunnel
 
+import android.Manifest
 import android.app.Activity
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
+import android.os.SystemClock
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.BadConfigException
@@ -27,14 +30,18 @@ import java.util.concurrent.Executors
 class MainActivity : FlutterActivity() {
 	companion object {
 		private const val vpnPermissionRequestCode = 1001
+		private const val notificationPermissionRequestCode = 1002
 	}
 
 	private val channelName = "wgfytunnel/wireguard"
 	private val executor = Executors.newSingleThreadExecutor()
 	private val dnsResolverExecutor = Executors.newCachedThreadPool()
-	private val tunnel = AppTunnel("wgfytunnel")
-	private lateinit var backend: GoBackend
+	private val tunnel: AppTunnel
+		get() = WireGuardRuntime.tunnel
+	private val backend: GoBackend
+		get() = WireGuardRuntime.backend
 	private lateinit var singBoxManager: SingBoxManager
+	private var notificationPermissionRequestInFlight = false
 	@Volatile
 	private var installedAppsCache: List<Map<String, String>>? = null
 	private var useSingBox = false
@@ -49,8 +56,30 @@ class MainActivity : FlutterActivity() {
 
 	override fun onCreate(savedInstanceState: android.os.Bundle?) {
 		super.onCreate(savedInstanceState)
-		backend = GoBackend(applicationContext)
+		WireGuardRuntime.initialize(applicationContext)
 		singBoxManager = SingBoxManager(applicationContext)
+	}
+
+	override fun onRequestPermissionsResult(
+		requestCode: Int,
+		permissions: Array<out String>,
+		grantResults: IntArray,
+	) {
+		super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+		if (requestCode != notificationPermissionRequestCode) {
+			return
+		}
+
+		notificationPermissionRequestInFlight = false
+		val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+		if (!granted) {
+			return
+		}
+
+		WireGuardRuntime.connectedAtElapsedRealtime?.let { connectedAtElapsedRealtime ->
+			WireGuardNotificationService.start(applicationContext, connectedAtElapsedRealtime)
+		}
+		LibcoreBridge.currentVpnService?.refreshNotificationIfActive()
 	}
 
 	override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -231,10 +260,16 @@ class MainActivity : FlutterActivity() {
 			try {
 				backend.setState(tunnel, Tunnel.State.UP, config)
 				runOnUiThread {
+					val connectedAtElapsedRealtime = SystemClock.elapsedRealtime()
+					WireGuardRuntime.connectedAtElapsedRealtime = connectedAtElapsedRealtime
+					WireGuardNotificationService.start(applicationContext, connectedAtElapsedRealtime)
+					requestNotificationPermissionIfNeeded()
 					result.success(statusPayload(statusMessage ?: "VPN подключен", connectedOverride = true))
 				}
 			} catch (e: Exception) {
 				runOnUiThread {
+					WireGuardRuntime.connectedAtElapsedRealtime = null
+					WireGuardNotificationService.stop(applicationContext)
 					result.error("WG_CONNECT_FAILED", e.message ?: "Не удалось поднять WireGuard туннель", null)
 				}
 			}
@@ -275,6 +310,8 @@ class MainActivity : FlutterActivity() {
 			try {
 				backend.setState(tunnel, Tunnel.State.DOWN, null)
 				runOnUiThread {
+					WireGuardRuntime.connectedAtElapsedRealtime = null
+					WireGuardNotificationService.stop(applicationContext)
 					result.success(statusPayload("VPN отключен", connectedOverride = false))
 				}
 			} catch (e: Exception) {
@@ -365,8 +402,11 @@ class MainActivity : FlutterActivity() {
 		executor.execute {
 			val success = singBoxManager.start(configJson, splitMode, selectedPackages)
 			if (success) {
+				WireGuardRuntime.connectedAtElapsedRealtime = null
+				WireGuardNotificationService.stop(applicationContext)
 				useSingBox = true
 				runOnUiThread {
+					requestNotificationPermissionIfNeeded()
 					result.success(statusPayload(statusMessage, connectedOverride = true))
 				}
 			} else {
@@ -385,6 +425,8 @@ class MainActivity : FlutterActivity() {
 		executor.execute {
 			singBoxManager.stop()
 			useSingBox = false
+			WireGuardRuntime.connectedAtElapsedRealtime = null
+			WireGuardNotificationService.stop(applicationContext)
 			runOnUiThread {
 				result.success(statusPayload("VPN sing-box отключен", connectedOverride = false))
 			}
@@ -878,16 +920,24 @@ class MainActivity : FlutterActivity() {
 		return payload
 	}
 
-	private class AppTunnel(private val tunnelName: String) : Tunnel {
-		@Volatile
-		var state: Tunnel.State = Tunnel.State.DOWN
-			private set
-
-		override fun getName(): String = tunnelName
-
-		override fun onStateChange(newState: Tunnel.State) {
-			state = newState
+	private fun requestNotificationPermissionIfNeeded() {
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+			return
 		}
+
+		if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+			return
+		}
+
+		if (notificationPermissionRequestInFlight) {
+			return
+		}
+
+		notificationPermissionRequestInFlight = true
+		requestPermissions(
+			arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+			notificationPermissionRequestCode,
+		)
 	}
 
 	private data class InstalledApp(

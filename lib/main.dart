@@ -97,6 +97,10 @@ class MyApp extends StatelessWidget {
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -130,6 +134,10 @@ class MyApp extends StatelessWidget {
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -299,6 +307,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             insetPadding: const EdgeInsets.symmetric(horizontal: 8),
             backgroundColor: colorScheme.surface,
             surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(28),
+              side: Theme.of(dialogContext).brightness == Brightness.dark
+                  ? const BorderSide(color: Colors.white, width: 1)
+                  : BorderSide.none,
+            ),
             clipBehavior: Clip.antiAlias,
             child: SizedBox(
               width: double.infinity,
@@ -399,6 +413,132 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   String _configName(File file) {
     return file.path.split(Platform.pathSeparator).last;
+  }
+
+  String _configEditableName(File file) {
+    final fileName = _configName(file);
+    if (!fileName.toLowerCase().endsWith('.conf')) {
+      return fileName;
+    }
+
+    return fileName.substring(0, fileName.length - '.conf'.length);
+  }
+
+  String _targetConfigFileName(String rawName) {
+    final trimmedName = rawName.trim();
+    if (trimmedName.toLowerCase().endsWith('.conf')) {
+      return trimmedName;
+    }
+
+    return '$trimmedName.conf';
+  }
+
+  String? _validateConfigRename(
+    File file,
+    String rawName,
+    AppLocalizations l10n,
+  ) {
+    final trimmedName = rawName.trim();
+    if (trimmedName.isEmpty) {
+      return l10n.configRenameEmpty;
+    }
+
+    if (RegExp(r'[<>:"/\\|?*\x00-\x1F]').hasMatch(trimmedName)) {
+      return l10n.configRenameInvalid;
+    }
+
+    final targetFileName = _targetConfigFileName(trimmedName);
+    if (_configName(file) == targetFileName) {
+      return null;
+    }
+
+    final targetPath =
+        '${file.parent.path}${Platform.pathSeparator}$targetFileName';
+    final normalizedTargetPath = targetPath.toLowerCase();
+    final nameAlreadyUsed = _importedConfigs.any(
+      (config) =>
+          config.path.toLowerCase() == normalizedTargetPath &&
+          config.path != file.path,
+    );
+    if (nameAlreadyUsed) {
+      return l10n.configRenameExists;
+    }
+
+    return null;
+  }
+
+  Future<({File? file, String? error})> _renameImportedConfig(
+    File file,
+    String rawName,
+  ) async {
+    final l10n = AppLocalizations.of(context);
+    final validationError = _validateConfigRename(file, rawName, l10n);
+    if (validationError != null) {
+      return (file: null, error: validationError);
+    }
+
+    final targetFileName = _targetConfigFileName(rawName);
+    if (_configName(file) == targetFileName) {
+      return (file: file, error: null);
+    }
+
+    final renamedFile = File(
+      '${file.parent.path}${Platform.pathSeparator}$targetFileName',
+    );
+
+    if (await renamedFile.exists()) {
+      return (file: null, error: l10n.configRenameExists);
+    }
+
+    File actualRenamedFile;
+    try {
+      actualRenamedFile = await file.rename(renamedFile.path);
+    } catch (_) {
+      return (file: null, error: l10n.configRenameFailed);
+    }
+
+    final updatedConfigs = _importedConfigs
+        .map((config) => config.path == file.path ? actualRenamedFile : config)
+        .toList(growable: false);
+
+    final updatedPinnedPaths = Set<String>.from(_pinnedConfigPaths);
+    if (updatedPinnedPaths.remove(file.path)) {
+      updatedPinnedPaths.add(actualRenamedFile.path);
+    }
+
+    final updatedEndpointsByPath = Map<String, String>.from(_configEndpointsByPath);
+    final endpointText = updatedEndpointsByPath.remove(file.path);
+    if (endpointText != null) {
+      updatedEndpointsByPath[actualRenamedFile.path] = endpointText;
+    }
+
+    final updatedCountriesByPath =
+        Map<String, EndpointCountryInfo>.from(_configCountriesByPath);
+    final countryInfo = updatedCountriesByPath.remove(file.path);
+    if (countryInfo != null) {
+      updatedCountriesByPath[actualRenamedFile.path] = countryInfo;
+    }
+
+    final updatedSelectedConfig =
+        _selectedConf?.path == file.path ? actualRenamedFile : _selectedConf;
+
+    if (mounted) {
+      setState(() {
+        _importedConfigs = updatedConfigs;
+        _pinnedConfigPaths = updatedPinnedPaths;
+        _configEndpointsByPath = updatedEndpointsByPath;
+        _configCountriesByPath = updatedCountriesByPath;
+        _selectedConf = updatedSelectedConfig;
+      });
+    }
+
+    await _persistImportedConfigs(
+      updatedConfigs,
+      selectedConfig: updatedSelectedConfig,
+      pinnedPaths: updatedPinnedPaths,
+    );
+
+    return (file: actualRenamedFile, error: null);
   }
 
   bool _samePaths(List<String> left, List<String> right) {
@@ -570,6 +710,173 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     return _firstNonEmptyValue(peers.first, const ['Endpoint']) ?? '-';
   }
 
+  List<String> _editableConfigFieldKeys(String sectionType) {
+    switch (sectionType) {
+      case 'interface':
+        return const ['DNS'];
+      case 'peer':
+        return const ['AllowedIPs', 'PersistentKeepalive'];
+      default:
+        return const <String>[];
+    }
+  }
+
+  bool _isEditableConfigField(String sectionType, String key) {
+    return _editableConfigFieldKeys(sectionType).contains(key);
+  }
+
+  String _configFieldControllerKey(
+    String sectionType,
+    int sectionIndex,
+    String fieldKey,
+  ) {
+    return '$sectionType:$sectionIndex:$fieldKey';
+  }
+
+  String _updatedConfigContent(
+    String content,
+    Map<String, String> editedFieldValues,
+  ) {
+    final lines = content.split(RegExp(r'\r?\n'));
+    final updatedLines = <String>[];
+    String? currentSectionType;
+    var interfaceIndex = -1;
+    var peerIndex = -1;
+    var seenEditableKeys = <String>{};
+
+    void appendMissingEditableFields() {
+      if (currentSectionType == null) {
+        return;
+      }
+
+      final sectionIndex = currentSectionType == 'interface'
+          ? interfaceIndex
+          : peerIndex;
+      for (final fieldKey in _editableConfigFieldKeys(currentSectionType)) {
+        if (seenEditableKeys.contains(fieldKey)) {
+          continue;
+        }
+
+        final controllerKey = _configFieldControllerKey(
+          currentSectionType,
+          sectionIndex,
+          fieldKey,
+        );
+        final value = editedFieldValues[controllerKey]?.trim() ?? '';
+        if (value.isEmpty) {
+          continue;
+        }
+
+        updatedLines.add('$fieldKey = $value');
+      }
+
+      seenEditableKeys = <String>{};
+    }
+
+    for (final rawLine in lines) {
+      final trimmedLine = rawLine.trim();
+      if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
+        appendMissingEditableFields();
+
+        final sectionName = trimmedLine
+            .substring(1, trimmedLine.length - 1)
+            .trim()
+            .toLowerCase();
+        if (sectionName == 'interface') {
+          currentSectionType = 'interface';
+          interfaceIndex += 1;
+        } else if (sectionName == 'peer') {
+          currentSectionType = 'peer';
+          peerIndex += 1;
+        } else {
+          currentSectionType = null;
+        }
+
+        seenEditableKeys = <String>{};
+        updatedLines.add(rawLine);
+        continue;
+      }
+
+      if (currentSectionType != null) {
+        final separatorIndex = rawLine.indexOf('=');
+        if (separatorIndex > 0) {
+          final key = rawLine.substring(0, separatorIndex).trim();
+          if (_isEditableConfigField(currentSectionType, key)) {
+            seenEditableKeys.add(key);
+            final sectionIndex = currentSectionType == 'interface'
+                ? interfaceIndex
+                : peerIndex;
+            final controllerKey = _configFieldControllerKey(
+              currentSectionType,
+              sectionIndex,
+              key,
+            );
+            final value = editedFieldValues[controllerKey]?.trim() ?? '';
+            if (value.isNotEmpty) {
+              updatedLines.add('$key = $value');
+            }
+            continue;
+          }
+        }
+      }
+
+      updatedLines.add(rawLine);
+    }
+
+    appendMissingEditableFields();
+    return '${updatedLines.join('\n').trimRight()}\n';
+  }
+
+  Future<String?> _saveEditedConfigFields(
+    File file,
+    Map<String, TextEditingController> controllers,
+  ) async {
+    final l10n = AppLocalizations.of(context);
+    final content = await _readConfigContent(file);
+    if (content == null) {
+      return l10n.failedReadFile;
+    }
+
+    final editedFieldValues = <String, String>{
+      for (final entry in controllers.entries) entry.key: entry.value.text,
+    };
+    final updatedContent = _updatedConfigContent(content, editedFieldValues);
+
+    try {
+      await file.writeAsString(updatedContent, flush: true);
+    } catch (_) {
+      return l10n.configSaveFailed;
+    }
+
+    final updatedParsedConfig = _parseConfigContent(updatedContent);
+    if (updatedParsedConfig == null) {
+      return l10n.configSaveFailed;
+    }
+
+    final updatedEndpointsByPath = <String, String>{
+      ..._configEndpointsByPath,
+      file.path: _configEndpointText(updatedParsedConfig),
+    };
+
+    if (mounted) {
+      setState(() {
+        _configEndpointsByPath = updatedEndpointsByPath;
+        if (_selectedConf?.path == file.path) {
+          _parsedConf = updatedParsedConfig;
+        }
+      });
+    }
+
+    unawaited(
+      _queueCountryLookupsForConfigs(
+        [file],
+        endpointsByPath: updatedEndpointsByPath,
+      ),
+    );
+
+    return null;
+  }
+
   EndpointCountryInfo? _configCountryInfo(String endpointText, String filePath) {
     final lookupKey = EndpointCountryService.lookupKeyForEndpoint(endpointText);
     if (lookupKey == null) {
@@ -720,8 +1027,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }) {
     final countryInfo = _configCountryInfo(endpointText, filePath);
     final isLookupInFlight = _isConfigCountryLookupInFlight(endpointText);
+    final selectedForegroundColor = colorScheme.brightness == Brightness.dark
+        ? Colors.white
+        : Colors.black;
     final foregroundColor = isSelected
-        ? colorScheme.primary
+        ? selectedForegroundColor
         : colorScheme.onSurfaceVariant;
 
     if (isLookupInFlight) {
@@ -1346,7 +1656,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final textTheme = Theme.of(context).textTheme;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1361,14 +1671,39 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildConfigSectionTitle(BuildContext context, String title) {
+  Widget _buildEditableConfigInfoRow(
+    BuildContext context,
+    String label,
+    TextEditingController controller, {
+    required bool enabled,
+    required VoidCallback onChanged,
+    String? errorText,
+    ValueChanged<String>? onSubmitted,
+  }) {
     final textTheme = Theme.of(context).textTheme;
 
     return Padding(
-      padding: const EdgeInsets.only(top: 4, bottom: 12),
-      child: Text(
-        title,
-        style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          TextField(
+            controller: controller,
+            enabled: enabled,
+            onChanged: (_) => onChanged(),
+            onSubmitted: onSubmitted,
+            decoration: InputDecoration(
+              isDense: true,
+              errorText: errorText,
+              contentPadding: const EdgeInsets.all(4),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1404,101 +1739,334 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
     final interfaces = _stringSections(parsedConfig['interfaces']);
     final peers = _stringSections(parsedConfig['peers']);
-    final primaryInterface = interfaces.isNotEmpty
-        ? interfaces.first
-        : const <String, String>{};
+    final globalValues = _stringMap(parsedConfig['global']);
 
-    final address = _firstNonEmptyValue(primaryInterface, const ['Address']);
-    final dns = _firstNonEmptyValue(primaryInterface, const ['DNS']);
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        final materialL10n = MaterialLocalizations.of(dialogContext);
-        final details = <Widget>[
-          _buildConfigInfoRow(dialogContext, l10n.configNameLabel, _configName(file)),
-          _buildConfigInfoRow(dialogContext, l10n.configPathLabel, file.path),
-          _buildConfigInfoRow(
-            dialogContext,
-            l10n.configStatusLabel,
-            parsedConfig['isValid'] == true
-                ? l10n.configValidStatus
-                : l10n.configInvalidStatus,
-          ),
-          _buildConfigInfoRow(
-            dialogContext,
-            l10n.configInterfacesCount,
-            interfaces.length.toString(),
-          ),
-          _buildConfigInfoRow(
-            dialogContext,
-            l10n.configPeersCount,
-            peers.length.toString(),
-          ),
-        ];
-
-        if (primaryInterface.isNotEmpty) {
-          details.add(
-            _buildConfigSectionTitle(dialogContext, l10n.configInterfaceSection),
-          );
-          if (address != null) {
-            details.add(_buildConfigInfoRow(dialogContext, 'Address', address));
-          }
-          if (dns != null) {
-            details.add(_buildConfigInfoRow(dialogContext, 'DNS', dns));
-          }
-        }
-
-        for (var index = 0; index < peers.length; index += 1) {
-          final peer = peers[index];
-          details.add(
-            _buildConfigSectionTitle(
-              dialogContext,
-              '${l10n.configPeerSection} ${index + 1}',
-            ),
-          );
-
-          final endpoint = _firstNonEmptyValue(peer, const ['Endpoint']);
-          if (endpoint != null) {
-            details.add(_buildConfigInfoRow(dialogContext, 'Endpoint', endpoint));
-          }
-
-          final allowedIps = _firstNonEmptyValue(peer, const ['AllowedIPs']);
-          if (allowedIps != null) {
-            details.add(
-              _buildConfigInfoRow(dialogContext, 'AllowedIPs', allowedIps),
-            );
-          }
-
-          final publicKey = _firstNonEmptyValue(peer, const ['PublicKey']);
-          if (publicKey != null) {
-            details.add(_buildConfigInfoRow(dialogContext, 'PublicKey', publicKey));
-          }
-        }
-
-        return AlertDialog(
-          title: Text(l10n.configInfoTitle),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: SelectionArea(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: details,
-                ),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(materialL10n.okButtonLabel),
-            ),
-          ],
-        );
-      },
+    final nameController = TextEditingController(
+      text: _configEditableName(file),
     );
+    nameController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: nameController.text.length,
+    );
+    final editableFieldControllers = <String, TextEditingController>{};
+
+    TextEditingController ensureEditableFieldController(
+      String sectionType,
+      int sectionIndex,
+      String fieldKey,
+      String initialValue,
+    ) {
+      final controllerKey = _configFieldControllerKey(
+        sectionType,
+        sectionIndex,
+        fieldKey,
+      );
+      return editableFieldControllers.putIfAbsent(
+        controllerKey,
+        () => TextEditingController(text: initialValue),
+      );
+    }
+
+    for (var index = 0; index < interfaces.length; index += 1) {
+      final interface = interfaces[index];
+      for (final fieldKey in _editableConfigFieldKeys('interface')) {
+        ensureEditableFieldController(
+          'interface',
+          index,
+          fieldKey,
+          interface[fieldKey] ?? '',
+        );
+      }
+    }
+
+    for (var index = 0; index < peers.length; index += 1) {
+      final peer = peers[index];
+      for (final fieldKey in _editableConfigFieldKeys('peer')) {
+        ensureEditableFieldController(
+          'peer',
+          index,
+          fieldKey,
+          peer[fieldKey] ?? '',
+        );
+      }
+    }
+
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          String? renameErrorText;
+          String? dialogErrorText;
+          var isSaving = false;
+
+          return StatefulBuilder(
+            builder: (dialogContext, setDialogState) {
+              Future<void> handleSave() async {
+                final validationError = _validateConfigRename(
+                  file,
+                  nameController.text,
+                  l10n,
+                );
+                if (validationError != null) {
+                  setDialogState(() {
+                    renameErrorText = validationError;
+                  });
+                  return;
+                }
+
+                setDialogState(() {
+                  isSaving = true;
+                  renameErrorText = null;
+                  dialogErrorText = null;
+                });
+
+                final saveError = await _saveEditedConfigFields(
+                  file,
+                  editableFieldControllers,
+                );
+                if (!dialogContext.mounted) {
+                  return;
+                }
+
+                if (saveError != null) {
+                  setDialogState(() {
+                    isSaving = false;
+                    dialogErrorText = saveError;
+                  });
+                  return;
+                }
+
+                final renameResult = await _renameImportedConfig(
+                  file,
+                  nameController.text,
+                );
+
+                if (!dialogContext.mounted) {
+                  return;
+                }
+
+                if (renameResult.error != null) {
+                  setDialogState(() {
+                    isSaving = false;
+                    renameErrorText = renameResult.error;
+                  });
+                  return;
+                }
+
+                Navigator.of(dialogContext).pop();
+              }
+
+              final details = <Widget>[];
+
+              void clearDialogError() {
+                if (dialogErrorText == null) {
+                  return;
+                }
+
+                setDialogState(() {
+                  dialogErrorText = null;
+                });
+              }
+
+              String? previousSectionType;
+              void appendSectionRows(
+                Map<String, String> values, {
+                required String sectionType,
+                required int sectionIndex,
+              }) {
+                if (values.isEmpty) {
+                  return;
+                }
+
+                if (details.isNotEmpty &&
+                    !(previousSectionType == 'interface' && sectionType == 'peer')) {
+                  details.add(
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 4),
+                      child: Divider(height: 1),
+                    ),
+                  );
+                }
+
+                final renderedEditableKeys = <String>{};
+                for (final entry in values.entries) {
+                  if (_isEditableConfigField(sectionType, entry.key)) {
+                    renderedEditableKeys.add(entry.key);
+                    details.add(
+                      _buildEditableConfigInfoRow(
+                        dialogContext,
+                        entry.key,
+                        ensureEditableFieldController(
+                          sectionType,
+                          sectionIndex,
+                          entry.key,
+                          entry.value,
+                        ),
+                        enabled: !isSaving,
+                        onChanged: clearDialogError,
+                      ),
+                    );
+                    continue;
+                  }
+
+                  details.add(
+                    _buildConfigInfoRow(dialogContext, entry.key, entry.value),
+                  );
+                }
+
+                for (final fieldKey in _editableConfigFieldKeys(sectionType)) {
+                  if (renderedEditableKeys.contains(fieldKey)) {
+                    continue;
+                  }
+
+                  details.add(
+                    _buildEditableConfigInfoRow(
+                      dialogContext,
+                      fieldKey,
+                      ensureEditableFieldController(
+                        sectionType,
+                        sectionIndex,
+                        fieldKey,
+                        '',
+                      ),
+                      enabled: !isSaving,
+                      onChanged: clearDialogError,
+                    ),
+                  );
+                }
+
+                previousSectionType = sectionType;
+              }
+
+              appendSectionRows(globalValues, sectionType: 'global', sectionIndex: 0);
+              for (var index = 0; index < interfaces.length; index += 1) {
+                appendSectionRows(
+                  interfaces[index],
+                  sectionType: 'interface',
+                  sectionIndex: index,
+                );
+              }
+              for (var index = 0; index < peers.length; index += 1) {
+                appendSectionRows(
+                  peers[index],
+                  sectionType: 'peer',
+                  sectionIndex: index,
+                );
+              }
+
+              final dialogSize = MediaQuery.sizeOf(dialogContext);
+
+              return Dialog(
+                insetPadding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 24,
+                ),
+                backgroundColor: Theme.of(dialogContext).colorScheme.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(28),
+                  side: Theme.of(dialogContext).brightness == Brightness.dark
+                      ? const BorderSide(color: Colors.white, width: 1)
+                      : BorderSide.none,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: 560,
+                    maxHeight: dialogSize.height * 0.8,
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Flexible(
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildEditableConfigInfoRow(
+                                      dialogContext,
+                                      l10n.configNameLabel,
+                                      nameController,
+                                      enabled: !isSaving,
+                                      onChanged: () {
+                                        if (renameErrorText == null) {
+                                          return;
+                                        }
+
+                                        setDialogState(() {
+                                          renameErrorText = null;
+                                        });
+                                        clearDialogError();
+                                      },
+                                      onSubmitted: (_) {
+                                        if (isSaving) {
+                                          return;
+                                        }
+
+                                        unawaited(handleSave());
+                                      },
+                                      errorText: renameErrorText,
+                                    ),
+                                    ...details,
+                                    if (dialogErrorText != null) ...[
+                                      Text(
+                                        dialogErrorText!,
+                                        style: TextStyle(
+                                          color: Theme.of(dialogContext).colorScheme.error,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                TextButton(
+                                  onPressed: isSaving
+                                      ? null
+                                      : () => Navigator.of(dialogContext).pop(),
+                                  child: Text(l10n.close),
+                                ),
+                                const SizedBox(width: 8),
+                                FilledButton(
+                                  onPressed: isSaving ? null : handleSave,
+                                  child: isSaving
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : Text(l10n.save),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      nameController.dispose();
+      for (final controller in editableFieldControllers.values) {
+        controller.dispose();
+      }
+    }
   }
 
   Future<void> _togglePinnedConfig(File file) async {
@@ -1559,6 +2127,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         final isSelected = _selectedConf?.path == file.path;
         final isPinned = _pinnedConfigPaths.contains(file.path);
         final endpointText = _configEndpointsByPath[file.path] ?? '-';
+        final selectedBackgroundColor = (isDark ? Colors.white : Colors.black)
+          .withValues(alpha: 0.2);
+        final selectedForegroundColor = isDark ? Colors.white : Colors.black;
+        final itemForegroundColor = isSelected
+            ? selectedForegroundColor
+            : colorScheme.onSurface;
+        final endpointColor = isSelected
+            ? selectedForegroundColor
+            : colorScheme.onSurfaceVariant;
         final countryBadge = _buildConfigCountryBadge(
           filePath: file.path,
           endpointText: endpointText,
@@ -1637,7 +2214,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               child: Ink(
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? colorScheme.primary.withValues(alpha: 0.08)
+                      ? selectedBackgroundColor
                       : Colors.transparent,
                   borderRadius: dismissibleBorderRadius,
                   border: Border.all(color: itemBorderColor),
@@ -1664,14 +2241,16 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                   _configName(file),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: textTheme.titleMedium,
+                                  style: textTheme.titleMedium?.copyWith(
+                                    color: itemForegroundColor,
+                                  ),
                                 ),
                                 Text(
                                   endpointText,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: textTheme.bodyMedium?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
+                                    color: endpointColor,
                                   ),
                                 ),
                               ],
@@ -1684,7 +2263,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                               if (isPinned) ...[
                                 Icon(
                                   Icons.push_pin,
-                                  color: colorScheme.primary,
+                                  color: isSelected
+                                      ? selectedForegroundColor
+                                      : colorScheme.primary,
                                   size: 20,
                                 ),
                                 const SizedBox(width: 8),
@@ -1692,7 +2273,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                               Icon(
                                 isSelected ? Icons.check_circle : Icons.chevron_right,
                                 color: isSelected
-                                    ? colorScheme.primary
+                                    ? selectedForegroundColor
                                     : colorScheme.onSurfaceVariant,
                               ),
                             ],
