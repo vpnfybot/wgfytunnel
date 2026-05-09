@@ -5,7 +5,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -61,6 +60,7 @@ class InstalledApp {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   final languageService = LanguageService();
   final themeService = ThemeService();
   await themeService.initialize();
@@ -214,7 +214,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   int _selectedAppsCount = 0;
   int _selectedDomainsCount = 0;
   bool _hasCheckedForAppUpdate = false;
-  String? _appVersionLabel;
   final Map<String, EndpointCountryInfo?> _countryInfoByLookupKey =
       <String, EndpointCountryInfo?>{};
   Set<String> _countryLookupsInFlight = <String>{};
@@ -223,7 +222,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_loadAppVersionLabel());
     _restoreImportedConfigs();
     _refreshSplitTunnelSelections();
     _refreshTunnelStatus();
@@ -246,22 +244,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _refreshSplitTunnelSelections();
       _refreshTunnelStatus();
-    }
-  }
-
-  Future<void> _loadAppVersionLabel() async {
-    try {
-      final packageInfo = await PackageInfo.fromPlatform();
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _appVersionLabel = packageInfo.version;
-      });
-    } catch (error, stackTrace) {
-      debugPrint('Failed to load app version: $error');
-      debugPrintStack(stackTrace: stackTrace);
     }
   }
 
@@ -1076,7 +1058,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         height: 44,
         child: Icon(
           Icons.public_outlined,
-          color: foregroundColor,
+          color: Colors.black,
         ),
       );
     }
@@ -1810,10 +1792,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       }
     }
 
-    try {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
           String? renameErrorText;
           String? dialogErrorText;
           var isSaving = false;
@@ -2078,14 +2059,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               );
             },
           );
-        },
-      );
-    } finally {
-      nameController.dispose();
-      for (final controller in editableFieldControllers.values) {
-        controller.dispose();
-      }
-    }
+      },
+    );
   }
 
   Future<void> _togglePinnedConfig(File file) async {
@@ -2110,7 +2085,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildImportedConfigsList() {
+  Widget _buildImportedConfigsList({required double viewportHeight}) {
     final l10n = AppLocalizations.of(context);
     final materialL10n = MaterialLocalizations.of(context);
     final colorScheme = Theme.of(context).colorScheme;
@@ -2136,178 +2111,282 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      itemCount: _importedConfigs.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 4),
-      itemBuilder: (context, index) {
-        final file = _importedConfigs[index];
-        final isSelected = _selectedConf?.path == file.path;
-        final isPinned = _pinnedConfigPaths.contains(file.path);
-        final endpointText = _configEndpointsByPath[file.path] ?? '-';
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        final itemForegroundColor = isDark ? Colors.black : colorScheme.onSurface;
-        final endpointColor = isDark ? Colors.black : colorScheme.onSurfaceVariant;
-        final countryBadge = _buildConfigCountryBadge(
-          filePath: file.path,
-          endpointText: endpointText,
-          isSelected: isSelected,
-          colorScheme: colorScheme,
-        );
-        final dismissibleBorderRadius = BorderRadius.circular(16);
-        final dismissDirection = _isConnected
-            ? DismissDirection.startToEnd
-            : DismissDirection.horizontal;
+    final hasSelectedConfigInList =
+        _selectedConf != null &&
+        _importedConfigs.any((config) => config.path == _selectedConf!.path);
+    final isReorderedForActiveTunnel =
+        (_isConnected || _isConnecting) && hasSelectedConfigInList;
+    final selectedOriginalIndex = hasSelectedConfigInList
+        ? _importedConfigs.indexWhere(
+            (config) => config.path == _selectedConf!.path,
+          )
+        : -1;
+    final displayedConfigs = isReorderedForActiveTunnel
+        ? <File>[
+            _selectedConf!,
+            ..._importedConfigs.where(
+              (config) => config.path != _selectedConf!.path,
+            ),
+          ]
+        : _importedConfigs;
 
-        return Dismissible(
-            key: ValueKey(file.path),
-            direction: dismissDirection,
-            background: Container(
-              decoration: BoxDecoration(
-                color: Colors.transparent,
-                borderRadius: dismissibleBorderRadius,
+    const configItemSpacing = 4.0;
+    const listTopPadding = 12.0;
+    const listBottomPadding = 8.0;
+    final totalContentHeight =
+        (displayedConfigs.length * _mainActionButtonHeight) +
+        ((displayedConfigs.isNotEmpty ? displayedConfigs.length - 1 : 0) *
+            configItemSpacing) +
+        listTopPadding +
+        listBottomPadding;
+    final shouldShowBottomShadow = totalContentHeight > viewportHeight;
+    final configItemExtent = _mainActionButtonHeight + configItemSpacing;
+
+    return Stack(
+      children: [
+        ListView.separated(
+          padding: const EdgeInsets.fromLTRB(
+            16,
+            listTopPadding,
+            16,
+            listBottomPadding,
+          ),
+          itemCount: displayedConfigs.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 4),
+          itemBuilder: (context, index) {
+            final file = displayedConfigs[index];
+            final isSelected = _selectedConf?.path == file.path;
+            final isPinned = _pinnedConfigPaths.contains(file.path);
+            final isInactiveWhileConnected =
+                (_isConnected || _isConnecting) && !isSelected;
+            final endpointText = _configEndpointsByPath[file.path] ?? '-';
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final itemForegroundColor =
+                isDark ? Colors.black : colorScheme.onSurface;
+            final endpointColor =
+                isDark ? Colors.black : colorScheme.onSurfaceVariant;
+            final cardBackgroundColor = isInactiveWhileConnected
+                ? Colors.white.withValues(alpha: 0.2)
+                : Colors.white;
+            final countryBadge = _buildConfigCountryBadge(
+              filePath: file.path,
+              endpointText: endpointText,
+              isSelected: isSelected,
+              colorScheme: colorScheme,
+            );
+            final dismissibleBorderRadius = BorderRadius.circular(16);
+            final dismissDirection = isInactiveWhileConnected
+                ? DismissDirection.none
+                : (_isConnected
+                      ? DismissDirection.startToEnd
+                      : DismissDirection.horizontal);
+            final originalIndex = _importedConfigs.indexWhere(
+              (config) => config.path == file.path,
+            );
+            final moveOffset = !isReorderedForActiveTunnel ||
+                    selectedOriginalIndex <= 0
+                ? 0.0
+                : isSelected
+                    ? selectedOriginalIndex * configItemExtent
+                    : (originalIndex >= 0 &&
+                          originalIndex < selectedOriginalIndex
+                      ? -configItemExtent
+                      : 0.0);
+
+            return TweenAnimationBuilder<double>(
+              key: ValueKey(
+                '${file.path}-${isReorderedForActiveTunnel ? 'reordered' : 'normal'}',
               ),
-              alignment: Alignment.centerLeft,
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                    color: const Color.fromRGBO(255, 179, 0, 1),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    isPinned ? l10n.unpinConfig : l10n.pinConfig,
-                    style: const TextStyle(
-                      color: Color.fromRGBO(255, 179, 0, 1),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
+              tween: Tween<double>(begin: moveOffset, end: 0),
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              builder: (context, offset, child) => Transform.translate(
+                offset: Offset(0, offset),
+                child: child,
               ),
-            ),
-            secondaryBackground: Container(
-              decoration: BoxDecoration(
-                color: Colors.transparent,
-                borderRadius: dismissibleBorderRadius,
-              ),
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.delete, color: Color.fromRGBO(198, 40, 40, 1)),
-                  const SizedBox(width: 8),
-                  Text(
-                    materialL10n.deleteButtonTooltip,
-                    style: const TextStyle(
-                      color: Color.fromRGBO(198, 40, 40, 1),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            confirmDismiss: (direction) async {
-              if (direction == DismissDirection.startToEnd) {
-                await _togglePinnedConfig(file);
-                return false;
-              }
-              return true;
-            },
-            onDismissed: (_) => _removeImportedConfig(file),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: dismissibleBorderRadius,
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color.fromRGBO(0, 0, 0, 0.20),
-                    blurRadius: 8,
-                    spreadRadius: 0,
-                    offset: Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Material(
-                color: Colors.white,
-                borderRadius: dismissibleBorderRadius,
-                clipBehavior: Clip.antiAlias,
-                child: Ink(
+              child: Dismissible(
+                key: ValueKey(file.path),
+                direction: dismissDirection,
+                background: Container(
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Colors.transparent,
                     borderRadius: dismissibleBorderRadius,
                   ),
-                  child: InkWell(
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                        color: const Color.fromRGBO(255, 179, 0, 1),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isPinned ? l10n.unpinConfig : l10n.pinConfig,
+                        style: const TextStyle(
+                          color: Color.fromRGBO(255, 179, 0, 1),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                secondaryBackground: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.transparent,
                     borderRadius: dismissibleBorderRadius,
-                    onTap: () => _selectImportedConfig(file),
-                    onLongPress: () => _showConfigInfoDialog(file),
-                    child: SizedBox(
-                      height: _mainActionButtonHeight,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          children: [
-                            countryBadge,
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    _displayConfigName(
-                                      file,
-                                      endpointText: endpointText,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: textTheme.titleMedium?.copyWith(
-                                      color: itemForegroundColor,
-                                    ),
-                                  ),
-                                  Text(
-                                    endpointText,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: textTheme.bodyMedium?.copyWith(
-                                      color: endpointColor,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
+                  ),
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.delete,
+                        color: Color.fromRGBO(198, 40, 40, 1),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        materialL10n.deleteButtonTooltip,
+                        style: const TextStyle(
+                          color: Color.fromRGBO(198, 40, 40, 1),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                confirmDismiss: (direction) async {
+                  if (direction == DismissDirection.startToEnd) {
+                    await _togglePinnedConfig(file);
+                    return false;
+                  }
+                  return true;
+                },
+                onDismissed: (_) => _removeImportedConfig(file),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  decoration: BoxDecoration(
+                    color: cardBackgroundColor,
+                    borderRadius: dismissibleBorderRadius,
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color.fromRGBO(0, 0, 0, 0.20),
+                        blurRadius: 8,
+                        spreadRadius: 0,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Material(
+                    color: cardBackgroundColor,
+                    borderRadius: dismissibleBorderRadius,
+                    clipBehavior: Clip.antiAlias,
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        color: cardBackgroundColor,
+                        borderRadius: dismissibleBorderRadius,
+                      ),
+                      child: InkWell(
+                        borderRadius: dismissibleBorderRadius,
+                        onTap: isInactiveWhileConnected
+                            ? null
+                            : () => _selectImportedConfig(file),
+                        onLongPress: isInactiveWhileConnected
+                            ? null
+                            : () => _showConfigInfoDialog(file),
+                        child: SizedBox(
+                          height: _mainActionButtonHeight,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
                               children: [
-                                if (isPinned) ...[
-                                  Icon(
-                                    Icons.push_pin,
-                                    color: colorScheme.primary,
-                                    size: 20,
+                                countryBadge,
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        _displayConfigName(
+                                          file,
+                                          endpointText: endpointText,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: textTheme.titleMedium?.copyWith(
+                                          color: itemForegroundColor,
+                                        ),
+                                      ),
+                                      Text(
+                                        endpointText,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: textTheme.bodyMedium?.copyWith(
+                                          color: endpointColor,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 8),
-                                ],
-                                if (isSelected)
-                                  Icon(
-                                    Icons.check_circle,
-                                    color: colorScheme.primary,
-                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (isPinned) ...[
+                                      Icon(
+                                        Icons.push_pin,
+                                        color: colorScheme.primary,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
+                                    ],
+                                    if (isSelected)
+                                      const Icon(
+                                        Icons.check_circle,
+                                        color: Colors.black,
+                                      ),
+                                  ],
+                                ),
                               ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
+            );
+          },
+        ),
+        if (shouldShowBottomShadow)
+          const Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: SizedBox(
+                height: 8,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        Color.fromRGBO(0, 0, 0, 0.18),
+                        Color.fromRGBO(0, 0, 0, 0.0),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
-        );
-      },
+          ),
+      ],
     );
   }
 
@@ -2347,9 +2426,45 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final actionButtonShape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(12),
     );
+    final secondaryActionDecoration = BoxDecoration(
+      color: isDark ? Colors.transparent : Colors.white,
+      borderRadius: const BorderRadius.all(Radius.circular(12)),
+      boxShadow: isDark
+          ? null
+          : const [
+              BoxShadow(
+                color: Color.fromRGBO(0, 0, 0, 0.20),
+                blurRadius: 8,
+                spreadRadius: 0,
+                offset: Offset(0, 2),
+              ),
+            ],
+    );
+    final secondaryActionBackgroundColor =
+        isDark ? Colors.transparent : Colors.white;
+    final secondaryActionForegroundColor =
+        isDark ? Colors.white : Colors.black87;
+    final secondaryActionBorderSide = isDark
+        ? const BorderSide(color: Colors.white, width: 2)
+        : BorderSide.none;
+    final systemUiOverlayStyle = (isDark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark)
+        .copyWith(
+          statusBarColor: Colors.transparent,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarDividerColor: Colors.transparent,
+          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+          statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+          systemNavigationBarIconBrightness:
+              isDark ? Brightness.light : Brightness.dark,
+          systemNavigationBarContrastEnforced: false,
+        );
 
-    return Scaffold(
-      appBar: AppBar(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: systemUiOverlayStyle,
+      child: Scaffold(
+        appBar: AppBar(
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -2419,217 +2534,184 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       ),
       body: Padding(
         padding: const EdgeInsets.only(top: 16, bottom: 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: Stack(
           children: [
-            Stack(
-              alignment: Alignment.center,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Image.asset(
-                  'map.png',
-                  fit: BoxFit.fitWidth,
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Image.asset(
+                      'map.png',
+                      fit: BoxFit.fitWidth,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: _buildVpnfyImage(width: 220),
+                    ),
+                  ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 20),
-                  child: _buildVpnfyImage(width: 220),
-                ),
-              ],
-            ),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final actionButtonsBlockHeight = (_mainActionButtonHeight * 2) + 32.0;
-                  final availableListHeight = constraints.maxHeight > actionButtonsBlockHeight
-                      ? constraints.maxHeight - actionButtonsBlockHeight
-                      : 0.0;
-                  final targetListHeight =
-                      availableListHeight * defaultConfigsListHeightFactor;
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final actionButtonsBlockHeight = (_mainActionButtonHeight * 2) + 32.0;
+                      final availableListHeight = constraints.maxHeight > actionButtonsBlockHeight
+                          ? constraints.maxHeight - actionButtonsBlockHeight
+                          : 0.0;
+                      final targetListHeight =
+                          availableListHeight * defaultConfigsListHeightFactor;
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
+                      return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
-                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          SizedBox(
-                            height: _mainActionButtonHeight,
-                            child: actionInfoText == null || showActiveTunnelUi
-                                ? AnimatedOpacity(
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  height: _mainActionButtonHeight,
+                                  child: actionInfoText == null || showActiveTunnelUi
+                                      ? AnimatedOpacity(
+                                          duration: connectionAnimDuration,
+                                          curve: connectionAnimCurve,
+                                          opacity: showActiveTunnelUi ? 0.5 : 1.0,
+                                          child: IgnorePointer(
+                                            ignoring: showActiveTunnelUi,
+                                            child: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: DecoratedBox(
+                                                    decoration: secondaryActionDecoration,
+                                                    child: Tooltip(
+                                                      message: l10n.selectConfFile,
+                                                      child: OutlinedButton(
+                                                        onPressed: _importConf,
+                                                        style: OutlinedButton.styleFrom(
+                                                          backgroundColor: secondaryActionBackgroundColor,
+                                                          foregroundColor: secondaryActionForegroundColor,
+                                                          minimumSize: const Size.fromHeight(_mainActionButtonHeight),
+                                                          padding: EdgeInsets.zero,
+                                                          textStyle: actionButtonTextStyle,
+                                                          shape: actionButtonShape,
+                                                          side: secondaryActionBorderSide,
+                                                          elevation: 0,
+                                                        ),
+                                                        child: const Icon(Icons.insert_drive_file_outlined, size: 28),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: DecoratedBox(
+                                                    decoration: secondaryActionDecoration,
+                                                    child: Tooltip(
+                                                      message: l10n.scanQrCode,
+                                                      child: OutlinedButton(
+                                                        onPressed: _scanQrConfig,
+                                                        style: OutlinedButton.styleFrom(
+                                                          backgroundColor: secondaryActionBackgroundColor,
+                                                          foregroundColor: secondaryActionForegroundColor,
+                                                          minimumSize: const Size.fromHeight(_mainActionButtonHeight),
+                                                          padding: EdgeInsets.zero,
+                                                          textStyle: actionButtonTextStyle,
+                                                          shape: actionButtonShape,
+                                                          side: secondaryActionBorderSide,
+                                                          elevation: 0,
+                                                        ),
+                                                        child: const Icon(Icons.qr_code_scanner, size: 28),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        )
+                                      : Center(
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                                            child: Text(
+                                              actionInfoText,
+                                              textAlign: TextAlign.center,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                                color: actionInfoColor,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                ),
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  height: _mainActionButtonHeight,
+                                  child: AnimatedOpacity(
                                     duration: connectionAnimDuration,
                                     curve: connectionAnimCurve,
-                                    opacity: showActiveTunnelUi ? 0.5 : 1.0,
-                                    child: IgnorePointer(
-                                      ignoring: showActiveTunnelUi,
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: DecoratedBox(
-                                              decoration: const BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius: BorderRadius.all(Radius.circular(12)),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Color.fromRGBO(0, 0, 0, 0.20),
-                                                    blurRadius: 8,
-                                                    spreadRadius: 0,
-                                                    offset: Offset(0, 2),
-                                                  ),
-                                                ],
-                                              ),
-                                              child: Tooltip(
-                                                message: l10n.selectConfFile,
-                                                child: OutlinedButton(
-                                                  onPressed: _importConf,
-                                                  style: OutlinedButton.styleFrom(
-                                                    backgroundColor: Colors.white,
-                                                    foregroundColor: Colors.black87,
-                                                    minimumSize: const Size.fromHeight(_mainActionButtonHeight),
-                                                    padding: EdgeInsets.zero,
-                                                    textStyle: actionButtonTextStyle,
-                                                    shape: actionButtonShape,
-                                                    side: BorderSide.none,
-                                                    elevation: 0,
-                                                  ),
-                                                  child: const Icon(Icons.insert_drive_file_outlined, size: 28),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: DecoratedBox(
-                                              decoration: const BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius: BorderRadius.all(Radius.circular(12)),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Color.fromRGBO(0, 0, 0, 0.20),
-                                                    blurRadius: 8,
-                                                    spreadRadius: 0,
-                                                    offset: Offset(0, 2),
-                                                  ),
-                                                ],
-                                              ),
-                                              child: Tooltip(
-                                                message: l10n.scanQrCode,
-                                                child: OutlinedButton(
-                                                  onPressed: _scanQrConfig,
-                                                  style: OutlinedButton.styleFrom(
-                                                    backgroundColor: Colors.white,
-                                                    foregroundColor: Colors.black87,
-                                                    minimumSize: const Size.fromHeight(_mainActionButtonHeight),
-                                                    padding: EdgeInsets.zero,
-                                                    textStyle: actionButtonTextStyle,
-                                                    shape: actionButtonShape,
-                                                    side: BorderSide.none,
-                                                    elevation: 0,
-                                                  ),
-                                                  child: const Icon(Icons.qr_code_scanner, size: 28),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
+                                    opacity: connectButtonOpacity,
+                                    child: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(_mainActionButtonHeight),
+                                        padding: EdgeInsets.zero,
+                                        backgroundColor: connectButtonBackgroundColor,
+                                        foregroundColor: connectButtonForegroundColor,
+                                        disabledBackgroundColor: connectBlockedBySelection
+                                            ? connectButtonBackgroundColor
+                                            : connectButtonBackgroundColor.withValues(alpha: 0.24),
+                                        disabledForegroundColor: connectBlockedBySelection
+                                            ? connectButtonForegroundColor
+                                            : connectButtonForegroundColor.withValues(alpha: 0.45),
+                                        elevation: 0,
+                                        shape: actionButtonShape,
+                                        textStyle: actionButtonTextStyle,
                                       ),
-                                    ),
-                                  )
-                                : Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      onPressed: _isConnecting
+                                          ? null
+                                          : (_isConnected
+                                              ? _disconnectWireGuard
+                                              : (canConnect ? _connectWireGuard : null)),
                                       child: Text(
-                                        actionInfoText,
-                                        textAlign: TextAlign.center,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                          color: actionInfoColor,
-                                          fontWeight: FontWeight.w600,
+                                        _isConnected
+                                            ? '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}'
+                                            : l10n.connect,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
                                         ),
                                       ),
                                     ),
                                   ),
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            height: _mainActionButtonHeight,
-                            child: AnimatedOpacity(
-                              duration: connectionAnimDuration,
-                              curve: connectionAnimCurve,
-                              opacity: connectButtonOpacity,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(_mainActionButtonHeight),
-                                  padding: EdgeInsets.zero,
-                                  backgroundColor: connectButtonBackgroundColor,
-                                  foregroundColor: connectButtonForegroundColor,
-                                  disabledBackgroundColor: connectBlockedBySelection
-                                      ? connectButtonBackgroundColor
-                                      : connectButtonBackgroundColor.withValues(alpha: 0.24),
-                                  disabledForegroundColor: connectBlockedBySelection
-                                      ? connectButtonForegroundColor
-                                      : connectButtonForegroundColor.withValues(alpha: 0.45),
-                                  elevation: 0,
-                                  shape: actionButtonShape,
-                                  textStyle: actionButtonTextStyle,
                                 ),
-                                onPressed: _isConnecting
-                                    ? null
-                                    : (_isConnected
-                                        ? _disconnectWireGuard
-                                        : (canConnect ? _connectWireGuard : null)),
-                                child: Text(
-                                  _isConnected
-                                      ? '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}'
-                                      : l10n.connect,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                                const SizedBox(height: 0),
+                              ],
+                            ),
+                          ),
+                          SizedBox(
+                            height: targetListHeight,
+                            child: ClipRect(
+                              child: Transform.translate(
+                                offset: const Offset(0, -4),
+                                child: _buildImportedConfigsList(
+                                  viewportHeight: targetListHeight,
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 0),
                         ],
-                      ),
-                      ),
-                      SizedBox(
-                        height: targetListHeight,
-                        child: _buildImportedConfigsList(),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (_appVersionLabel != null)
-              Padding(
-                padding: EdgeInsets.only(
-                  left: MediaQuery.sizeOf(context).width * 0.08,
-                  bottom: 10,
-                ),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    _appVersionLabel!,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontSize:
-                          (Theme.of(context).textTheme.bodySmall?.fontSize ?? 12) + 4,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
-                      fontWeight: FontWeight.w600,
-                    ),
+                      );
+                    },
                   ),
                 ),
-              ),
+              ],
+            ),
           ],
         ),
       ),
-    );
+    ));
   }
 }

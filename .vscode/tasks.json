@@ -59,6 +59,26 @@
 			},
 			"isBackground": true,
 			"group": "build"
+		},
+		{
+			"label": "Run Flutter app (choose device)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\.vscode\\run_flutter_device_picker.ps1"
+			],
+			"options": {
+				"env": {
+					"ANDROID_HOME": "${env:LOCALAPPDATA}\\Android\\Sdk",
+					"ANDROID_SDK_ROOT": "${env:LOCALAPPDATA}\\Android\\Sdk"
+				}
+			},
+			"isBackground": true,
+			"group": "build"
 		}
 	]
 }
