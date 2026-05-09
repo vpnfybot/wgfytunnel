@@ -415,6 +415,25 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     return file.path.split(Platform.pathSeparator).last;
   }
 
+  bool _isQrManagedConfigFile(File file) {
+    final normalizedName = _configName(file).toLowerCase();
+    return normalizedName.startsWith('qr_config_') &&
+        normalizedName.endsWith('.conf');
+  }
+
+  String _displayConfigName(File file, {String? endpointText}) {
+    if (_isQrManagedConfigFile(file)) {
+      final normalizedEndpoint = endpointText?.trim();
+      if (normalizedEndpoint != null &&
+          normalizedEndpoint.isNotEmpty &&
+          normalizedEndpoint != '-') {
+        return normalizedEndpoint;
+      }
+    }
+
+    return _configName(file);
+  }
+
   String _configEditableName(File file) {
     final fileName = _configName(file);
     if (!fileName.toLowerCase().endsWith('.conf')) {
@@ -2096,8 +2115,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final materialL10n = MaterialLocalizations.of(context);
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final itemBorderColor = isDark ? Colors.white : Colors.black;
 
     if (_isLoadingImportedConfigs) {
       return const Center(child: CircularProgressIndicator());
@@ -2120,22 +2137,17 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
 
     return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       itemCount: _importedConfigs.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 10),
+      separatorBuilder: (context, index) => const SizedBox(height: 4),
       itemBuilder: (context, index) {
         final file = _importedConfigs[index];
         final isSelected = _selectedConf?.path == file.path;
         final isPinned = _pinnedConfigPaths.contains(file.path);
         final endpointText = _configEndpointsByPath[file.path] ?? '-';
-        final selectedBackgroundColor = (isDark ? Colors.white : Colors.black)
-          .withValues(alpha: 0.2);
-        final selectedForegroundColor = isDark ? Colors.white : Colors.black;
-        final itemForegroundColor = isSelected
-            ? selectedForegroundColor
-            : colorScheme.onSurface;
-        final endpointColor = isSelected
-            ? selectedForegroundColor
-            : colorScheme.onSurfaceVariant;
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final itemForegroundColor = isDark ? Colors.black : colorScheme.onSurface;
+        final endpointColor = isDark ? Colors.black : colorScheme.onSurfaceVariant;
         final countryBadge = _buildConfigCountryBadge(
           filePath: file.path,
           endpointText: endpointText,
@@ -2147,9 +2159,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             ? DismissDirection.startToEnd
             : DismissDirection.horizontal;
 
-        return ClipRRect(
-          borderRadius: dismissibleBorderRadius,
-          child: Dismissible(
+        return Dismissible(
             key: ValueKey(file.path),
             direction: dismissDirection,
             background: Container(
@@ -2207,85 +2217,95 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               return true;
             },
             onDismissed: (_) => _removeImportedConfig(file),
-            child: Material(
-              color: Colors.transparent,
-              borderRadius: dismissibleBorderRadius,
-              clipBehavior: Clip.antiAlias,
-              child: Ink(
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? selectedBackgroundColor
-                      : Colors.transparent,
-                  borderRadius: dismissibleBorderRadius,
-                  border: Border.all(color: itemBorderColor),
-                ),
-                child: InkWell(
-                  borderRadius: dismissibleBorderRadius,
-                  onTap: () => _selectImportedConfig(file),
-                  onLongPress: () => _showConfigInfoDialog(file),
-                  child: SizedBox(
-                    height: _mainActionButtonHeight,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: [
-                          countryBadge,
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: dismissibleBorderRadius,
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color.fromRGBO(0, 0, 0, 0.20),
+                    blurRadius: 8,
+                    spreadRadius: 0,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.white,
+                borderRadius: dismissibleBorderRadius,
+                clipBehavior: Clip.antiAlias,
+                child: Ink(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: dismissibleBorderRadius,
+                  ),
+                  child: InkWell(
+                    borderRadius: dismissibleBorderRadius,
+                    onTap: () => _selectImportedConfig(file),
+                    onLongPress: () => _showConfigInfoDialog(file),
+                    child: SizedBox(
+                      height: _mainActionButtonHeight,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            countryBadge,
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _displayConfigName(
+                                      file,
+                                      endpointText: endpointText,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: textTheme.titleMedium?.copyWith(
+                                      color: itemForegroundColor,
+                                    ),
+                                  ),
+                                  Text(
+                                    endpointText,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: textTheme.bodyMedium?.copyWith(
+                                      color: endpointColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
-                                  _configName(file),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: textTheme.titleMedium?.copyWith(
-                                    color: itemForegroundColor,
+                                if (isPinned) ...[
+                                  Icon(
+                                    Icons.push_pin,
+                                    color: colorScheme.primary,
+                                    size: 20,
                                   ),
-                                ),
-                                Text(
-                                  endpointText,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: textTheme.bodyMedium?.copyWith(
-                                    color: endpointColor,
+                                  const SizedBox(width: 8),
+                                ],
+                                if (isSelected)
+                                  Icon(
+                                    Icons.check_circle,
+                                    color: colorScheme.primary,
                                   ),
-                                ),
                               ],
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (isPinned) ...[
-                                Icon(
-                                  Icons.push_pin,
-                                  color: isSelected
-                                      ? selectedForegroundColor
-                                      : colorScheme.primary,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 8),
-                              ],
-                              Icon(
-                                isSelected ? Icons.check_circle : Icons.chevron_right,
-                                color: isSelected
-                                    ? selectedForegroundColor
-                                    : colorScheme.onSurfaceVariant,
-                              ),
-                            ],
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
         );
       },
     );
@@ -2346,34 +2366,74 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.tune),
-            tooltip: l10n.splitTunneling,
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => SplitTunnelSettingsPage(
-                    isVpnConnected: () => _isConnected,
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Tooltip(
+              message: l10n.splitTunneling,
+              child: SizedBox.square(
+                dimension: 36,
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Color.fromRGBO(0, 0, 0, 0.20),
+                        blurRadius: 8,
+                        spreadRadius: 0,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Material(
+                    color: Colors.white,
+                    borderRadius: const BorderRadius.all(Radius.circular(12)),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => SplitTunnelSettingsPage(
+                              isVpnConnected: () => _isConnected,
+                            ),
+                          ),
+                        ).then((_) {
+                          _refreshSplitTunnelSelections();
+                          _refreshTunnelStatus();
+                        });
+                      },
+                      child: const Center(
+                        child: Icon(
+                          Icons.tune,
+                          size: 24,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ).then((_) {
-                _refreshSplitTunnelSelections();
-                _refreshTunnelStatus();
-              });
-            },
+              ),
+            ),
           ),
         ],
       ),
       body: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+        padding: const EdgeInsets.only(top: 16, bottom: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 20),
-                child: _buildVpnfyImage(width: 220),
-              ),
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Image.asset(
+                  'map.png',
+                  fit: BoxFit.fitWidth,
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 20),
+                  child: _buildVpnfyImage(width: 220),
+                ),
+              ],
             ),
             Expanded(
               child: LayoutBuilder(
@@ -2388,60 +2448,93 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Column(
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           SizedBox(
                             height: _mainActionButtonHeight,
-                            child: _isConnected
-                                ? Center(
-                                    child: Transform.translate(
-                                      offset: const Offset(0, 6),
-                                      child: Text(
-                                        '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}',
-                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: 0.5,
-                                        ),
+                            child: actionInfoText == null || showActiveTunnelUi
+                                ? AnimatedOpacity(
+                                    duration: connectionAnimDuration,
+                                    curve: connectionAnimCurve,
+                                    opacity: showActiveTunnelUi ? 0.5 : 1.0,
+                                    child: IgnorePointer(
+                                      ignoring: showActiveTunnelUi,
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: DecoratedBox(
+                                              decoration: const BoxDecoration(
+                                                color: Colors.white,
+                                                borderRadius: BorderRadius.all(Radius.circular(12)),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Color.fromRGBO(0, 0, 0, 0.20),
+                                                    blurRadius: 8,
+                                                    spreadRadius: 0,
+                                                    offset: Offset(0, 2),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Tooltip(
+                                                message: l10n.selectConfFile,
+                                                child: OutlinedButton(
+                                                  onPressed: _importConf,
+                                                  style: OutlinedButton.styleFrom(
+                                                    backgroundColor: Colors.white,
+                                                    foregroundColor: Colors.black87,
+                                                    minimumSize: const Size.fromHeight(_mainActionButtonHeight),
+                                                    padding: EdgeInsets.zero,
+                                                    textStyle: actionButtonTextStyle,
+                                                    shape: actionButtonShape,
+                                                    side: BorderSide.none,
+                                                    elevation: 0,
+                                                  ),
+                                                  child: const Icon(Icons.insert_drive_file_outlined, size: 28),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: DecoratedBox(
+                                              decoration: const BoxDecoration(
+                                                color: Colors.white,
+                                                borderRadius: BorderRadius.all(Radius.circular(12)),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Color.fromRGBO(0, 0, 0, 0.20),
+                                                    blurRadius: 8,
+                                                    spreadRadius: 0,
+                                                    offset: Offset(0, 2),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Tooltip(
+                                                message: l10n.scanQrCode,
+                                                child: OutlinedButton(
+                                                  onPressed: _scanQrConfig,
+                                                  style: OutlinedButton.styleFrom(
+                                                    backgroundColor: Colors.white,
+                                                    foregroundColor: Colors.black87,
+                                                    minimumSize: const Size.fromHeight(_mainActionButtonHeight),
+                                                    padding: EdgeInsets.zero,
+                                                    textStyle: actionButtonTextStyle,
+                                                    shape: actionButtonShape,
+                                                    side: BorderSide.none,
+                                                    elevation: 0,
+                                                  ),
+                                                  child: const Icon(Icons.qr_code_scanner, size: 28),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                  )
-                                : actionInfoText == null
-                                ? Row(
-                                    children: [
-                                      Expanded(
-                                        child: Tooltip(
-                                          message: l10n.selectConfFile,
-                                          child: OutlinedButton(
-                                            onPressed: _importConf,
-                                            style: OutlinedButton.styleFrom(
-                                              minimumSize: const Size.fromHeight(_mainActionButtonHeight),
-                                              padding: EdgeInsets.zero,
-                                              textStyle: actionButtonTextStyle,
-                                              shape: actionButtonShape,
-                                            ),
-                                            child: const Icon(Icons.insert_drive_file_outlined),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Tooltip(
-                                          message: l10n.scanQrCode,
-                                          child: OutlinedButton(
-                                            onPressed: _scanQrConfig,
-                                            style: OutlinedButton.styleFrom(
-                                              minimumSize: const Size.fromHeight(_mainActionButtonHeight),
-                                              padding: EdgeInsets.zero,
-                                              textStyle: actionButtonTextStyle,
-                                              shape: actionButtonShape,
-                                            ),
-                                            child: const Icon(Icons.qr_code_scanner),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
                                   )
                                 : Center(
                                     child: Padding(
@@ -2459,7 +2552,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                     ),
                                   ),
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 8),
                           SizedBox(
                             height: _mainActionButtonHeight,
                             child: AnimatedOpacity(
@@ -2488,7 +2581,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                         ? _disconnectWireGuard
                                         : (canConnect ? _connectWireGuard : null)),
                                 child: Text(
-                                  _isConnected ? l10n.disconnect : l10n.connect,
+                                  _isConnected
+                                      ? '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}'
+                                      : l10n.connect,
                                   style: const TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w700,
@@ -2497,8 +2592,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 0),
                         ],
+                      ),
                       ),
                       SizedBox(
                         height: targetListHeight,
