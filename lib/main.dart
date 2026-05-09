@@ -32,6 +32,372 @@ enum SplitTunnelMode {
   final String description;
 }
 
+class _ConfigEditorPage extends StatefulWidget {
+  const _ConfigEditorPage({
+    required this.file,
+    required this.initialName,
+    required this.globalValues,
+    required this.interfaces,
+    required this.peers,
+    required this.editableInterfaceKeys,
+    required this.editablePeerKeys,
+    required this.configFieldControllerKeyBuilder,
+    required this.isEditableField,
+    required this.validateRename,
+    required this.saveEditedFields,
+    required this.renameConfig,
+  });
+
+  final File file;
+  final String initialName;
+  final Map<String, String> globalValues;
+  final List<Map<String, String>> interfaces;
+  final List<Map<String, String>> peers;
+  final List<String> editableInterfaceKeys;
+  final List<String> editablePeerKeys;
+  final String Function(String sectionType, int sectionIndex, String fieldKey)
+  configFieldControllerKeyBuilder;
+  final bool Function(String sectionType, String key) isEditableField;
+  final String? Function(String rawName) validateRename;
+  final Future<String?> Function(Map<String, TextEditingController> controllers)
+  saveEditedFields;
+  final Future<String?> Function(String rawName) renameConfig;
+
+  @override
+  State<_ConfigEditorPage> createState() => _ConfigEditorPageState();
+}
+
+class _ConfigEditorPageState extends State<_ConfigEditorPage> {
+  late final TextEditingController _nameController;
+  final Map<String, TextEditingController> _editableFieldControllers =
+      <String, TextEditingController>{};
+
+  bool _isSaving = false;
+  String? _renameErrorText;
+  String? _saveErrorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.initialName);
+    _nameController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _nameController.text.length,
+    );
+
+    for (var index = 0; index < widget.interfaces.length; index += 1) {
+      final values = widget.interfaces[index];
+      for (final fieldKey in widget.editableInterfaceKeys) {
+        _ensureEditableFieldController(
+          'interface',
+          index,
+          fieldKey,
+          values[fieldKey] ?? '',
+        );
+      }
+    }
+
+    for (var index = 0; index < widget.peers.length; index += 1) {
+      final values = widget.peers[index];
+      for (final fieldKey in widget.editablePeerKeys) {
+        _ensureEditableFieldController(
+          'peer',
+          index,
+          fieldKey,
+          values[fieldKey] ?? '',
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    for (final controller in _editableFieldControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  TextEditingController _ensureEditableFieldController(
+    String sectionType,
+    int sectionIndex,
+    String fieldKey,
+    String initialValue,
+  ) {
+    final controllerKey = widget.configFieldControllerKeyBuilder(
+      sectionType,
+      sectionIndex,
+      fieldKey,
+    );
+    return _editableFieldControllers.putIfAbsent(
+      controllerKey,
+      () => TextEditingController(text: initialValue),
+    );
+  }
+
+  List<String> _editableFieldKeys(String sectionType) {
+    if (sectionType == 'interface') {
+      return widget.editableInterfaceKeys;
+    }
+    if (sectionType == 'peer') {
+      return widget.editablePeerKeys;
+    }
+    return const <String>[];
+  }
+
+  void _clearSaveError() {
+    if (_saveErrorText == null) {
+      return;
+    }
+
+    setState(() {
+      _saveErrorText = null;
+    });
+  }
+
+  Future<void> _handleSave() async {
+    if (_isSaving) {
+      return;
+    }
+
+    final validationError = widget.validateRename(_nameController.text);
+    if (validationError != null) {
+      setState(() {
+        _renameErrorText = validationError;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+      _renameErrorText = null;
+      _saveErrorText = null;
+    });
+
+    final saveError = await widget.saveEditedFields(_editableFieldControllers);
+    if (!mounted) {
+      return;
+    }
+
+    if (saveError != null) {
+      setState(() {
+        _isSaving = false;
+        _saveErrorText = saveError;
+      });
+      return;
+    }
+
+    final renameError = await widget.renameConfig(_nameController.text);
+    if (!mounted) {
+      return;
+    }
+
+    if (renameError != null) {
+      setState(() {
+        _isSaving = false;
+        _renameErrorText = renameError;
+      });
+      return;
+    }
+
+    Navigator.of(context).pop();
+  }
+
+  Widget _buildInfoRow(BuildContext context, String label, String value) {
+    final textTheme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(value),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEditableRow(
+    BuildContext context,
+    String label,
+    TextEditingController controller, {
+    String? errorText,
+    ValueChanged<String>? onSubmitted,
+  }) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          TextField(
+            controller: controller,
+            enabled: !_isSaving,
+            onChanged: (_) {
+              if (_renameErrorText != null) {
+                setState(() {
+                  _renameErrorText = null;
+                });
+              }
+              _clearSaveError();
+            },
+            onSubmitted: onSubmitted,
+            decoration: InputDecoration(
+              isDense: true,
+              errorText: errorText,
+              contentPadding: const EdgeInsets.all(4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final details = <Widget>[];
+
+    String? previousSectionType;
+    void appendSectionRows(
+      Map<String, String> values, {
+      required String sectionType,
+      required int sectionIndex,
+    }) {
+      if (values.isEmpty) {
+        return;
+      }
+
+      if (details.isNotEmpty &&
+          !(previousSectionType == 'interface' && sectionType == 'peer')) {
+        details.add(
+          const Padding(
+            padding: EdgeInsets.only(bottom: 4),
+            child: Divider(height: 1),
+          ),
+        );
+      }
+
+      final renderedEditableKeys = <String>{};
+      for (final entry in values.entries) {
+        if (widget.isEditableField(sectionType, entry.key)) {
+          renderedEditableKeys.add(entry.key);
+          details.add(
+            _buildEditableRow(
+              context,
+              entry.key,
+              _ensureEditableFieldController(
+                sectionType,
+                sectionIndex,
+                entry.key,
+                entry.value,
+              ),
+            ),
+          );
+          continue;
+        }
+
+        details.add(_buildInfoRow(context, entry.key, entry.value));
+      }
+
+      for (final fieldKey in _editableFieldKeys(sectionType)) {
+        if (renderedEditableKeys.contains(fieldKey)) {
+          continue;
+        }
+
+        details.add(
+          _buildEditableRow(
+            context,
+            fieldKey,
+            _ensureEditableFieldController(sectionType, sectionIndex, fieldKey, ''),
+          ),
+        );
+      }
+
+      previousSectionType = sectionType;
+    }
+
+    appendSectionRows(widget.globalValues, sectionType: 'global', sectionIndex: 0);
+    for (var index = 0; index < widget.interfaces.length; index += 1) {
+      appendSectionRows(
+        widget.interfaces[index],
+        sectionType: 'interface',
+        sectionIndex: index,
+      );
+    }
+    for (var index = 0; index < widget.peers.length; index += 1) {
+      appendSectionRows(
+        widget.peers[index],
+        sectionType: 'peer',
+        sectionIndex: index,
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          onPressed: _isSaving ? null : () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.arrow_back),
+          tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+        ),
+        title: const SizedBox.shrink(),
+        actions: [
+          IconButton(
+            onPressed: _isSaving ? null : _handleSave,
+            tooltip: l10n.save,
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_outlined),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildEditableRow(
+                context,
+                l10n.configNameLabel,
+                _nameController,
+                errorText: _renameErrorText,
+                onSubmitted: (_) => _handleSave(),
+              ),
+              ...details,
+              if (_saveErrorText != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _saveErrorText!,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 enum SplitTunnelDomainMode {
   all('all', 'Все сайты через VPN', 'Весь трафик идет через VPN без доменных ограничений.'),
   include('include', 'Только указанные сайты', 'Через VPN идут только перечисленные домены (остальной трафик — напрямую).'),
@@ -1653,62 +2019,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     });
   }
 
-  Widget _buildConfigInfoRow(BuildContext context, String label, String value) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 4),
-          Text(value),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEditableConfigInfoRow(
-    BuildContext context,
-    String label,
-    TextEditingController controller, {
-    required bool enabled,
-    required VoidCallback onChanged,
-    String? errorText,
-    ValueChanged<String>? onSubmitted,
-  }) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 4),
-          TextField(
-            controller: controller,
-            enabled: enabled,
-            onChanged: (_) => onChanged(),
-            onSubmitted: onSubmitted,
-            decoration: InputDecoration(
-              isDense: true,
-              errorText: errorText,
-              contentPadding: const EdgeInsets.all(4),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildVpnfyImage({
     double? width,
     double? height,
@@ -1742,324 +2052,26 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final peers = _stringSections(parsedConfig['peers']);
     final globalValues = _stringMap(parsedConfig['global']);
 
-    final nameController = TextEditingController(
-      text: _configEditableName(file),
-    );
-    nameController.selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: nameController.text.length,
-    );
-    final editableFieldControllers = <String, TextEditingController>{};
-
-    TextEditingController ensureEditableFieldController(
-      String sectionType,
-      int sectionIndex,
-      String fieldKey,
-      String initialValue,
-    ) {
-      final controllerKey = _configFieldControllerKey(
-        sectionType,
-        sectionIndex,
-        fieldKey,
-      );
-      return editableFieldControllers.putIfAbsent(
-        controllerKey,
-        () => TextEditingController(text: initialValue),
-      );
-    }
-
-    for (var index = 0; index < interfaces.length; index += 1) {
-      final interface = interfaces[index];
-      for (final fieldKey in _editableConfigFieldKeys('interface')) {
-        ensureEditableFieldController(
-          'interface',
-          index,
-          fieldKey,
-          interface[fieldKey] ?? '',
-        );
-      }
-    }
-
-    for (var index = 0; index < peers.length; index += 1) {
-      final peer = peers[index];
-      for (final fieldKey in _editableConfigFieldKeys('peer')) {
-        ensureEditableFieldController(
-          'peer',
-          index,
-          fieldKey,
-          peer[fieldKey] ?? '',
-        );
-      }
-    }
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-          String? renameErrorText;
-          String? dialogErrorText;
-          var isSaving = false;
-
-          return StatefulBuilder(
-            builder: (dialogContext, setDialogState) {
-              Future<void> handleSave() async {
-                final validationError = _validateConfigRename(
-                  file,
-                  nameController.text,
-                  l10n,
-                );
-                if (validationError != null) {
-                  setDialogState(() {
-                    renameErrorText = validationError;
-                  });
-                  return;
-                }
-
-                setDialogState(() {
-                  isSaving = true;
-                  renameErrorText = null;
-                  dialogErrorText = null;
-                });
-
-                final saveError = await _saveEditedConfigFields(
-                  file,
-                  editableFieldControllers,
-                );
-                if (!dialogContext.mounted) {
-                  return;
-                }
-
-                if (saveError != null) {
-                  setDialogState(() {
-                    isSaving = false;
-                    dialogErrorText = saveError;
-                  });
-                  return;
-                }
-
-                final renameResult = await _renameImportedConfig(
-                  file,
-                  nameController.text,
-                );
-
-                if (!dialogContext.mounted) {
-                  return;
-                }
-
-                if (renameResult.error != null) {
-                  setDialogState(() {
-                    isSaving = false;
-                    renameErrorText = renameResult.error;
-                  });
-                  return;
-                }
-
-                Navigator.of(dialogContext).pop();
-              }
-
-              final details = <Widget>[];
-
-              void clearDialogError() {
-                if (dialogErrorText == null) {
-                  return;
-                }
-
-                setDialogState(() {
-                  dialogErrorText = null;
-                });
-              }
-
-              String? previousSectionType;
-              void appendSectionRows(
-                Map<String, String> values, {
-                required String sectionType,
-                required int sectionIndex,
-              }) {
-                if (values.isEmpty) {
-                  return;
-                }
-
-                if (details.isNotEmpty &&
-                    !(previousSectionType == 'interface' && sectionType == 'peer')) {
-                  details.add(
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 4),
-                      child: Divider(height: 1),
-                    ),
-                  );
-                }
-
-                final renderedEditableKeys = <String>{};
-                for (final entry in values.entries) {
-                  if (_isEditableConfigField(sectionType, entry.key)) {
-                    renderedEditableKeys.add(entry.key);
-                    details.add(
-                      _buildEditableConfigInfoRow(
-                        dialogContext,
-                        entry.key,
-                        ensureEditableFieldController(
-                          sectionType,
-                          sectionIndex,
-                          entry.key,
-                          entry.value,
-                        ),
-                        enabled: !isSaving,
-                        onChanged: clearDialogError,
-                      ),
-                    );
-                    continue;
-                  }
-
-                  details.add(
-                    _buildConfigInfoRow(dialogContext, entry.key, entry.value),
-                  );
-                }
-
-                for (final fieldKey in _editableConfigFieldKeys(sectionType)) {
-                  if (renderedEditableKeys.contains(fieldKey)) {
-                    continue;
-                  }
-
-                  details.add(
-                    _buildEditableConfigInfoRow(
-                      dialogContext,
-                      fieldKey,
-                      ensureEditableFieldController(
-                        sectionType,
-                        sectionIndex,
-                        fieldKey,
-                        '',
-                      ),
-                      enabled: !isSaving,
-                      onChanged: clearDialogError,
-                    ),
-                  );
-                }
-
-                previousSectionType = sectionType;
-              }
-
-              appendSectionRows(globalValues, sectionType: 'global', sectionIndex: 0);
-              for (var index = 0; index < interfaces.length; index += 1) {
-                appendSectionRows(
-                  interfaces[index],
-                  sectionType: 'interface',
-                  sectionIndex: index,
-                );
-              }
-              for (var index = 0; index < peers.length; index += 1) {
-                appendSectionRows(
-                  peers[index],
-                  sectionType: 'peer',
-                  sectionIndex: index,
-                );
-              }
-
-              final dialogSize = MediaQuery.sizeOf(dialogContext);
-
-              return Dialog(
-                insetPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 24,
-                ),
-                backgroundColor: Theme.of(dialogContext).colorScheme.surface,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(28),
-                  side: Theme.of(dialogContext).brightness == Brightness.dark
-                      ? const BorderSide(color: Colors.white, width: 1)
-                      : BorderSide.none,
-                ),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: 560,
-                    maxHeight: dialogSize.height * 0.8,
-                  ),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      return Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Flexible(
-                              child: SingleChildScrollView(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _buildEditableConfigInfoRow(
-                                      dialogContext,
-                                      l10n.configNameLabel,
-                                      nameController,
-                                      enabled: !isSaving,
-                                      onChanged: () {
-                                        if (renameErrorText == null) {
-                                          return;
-                                        }
-
-                                        setDialogState(() {
-                                          renameErrorText = null;
-                                        });
-                                        clearDialogError();
-                                      },
-                                      onSubmitted: (_) {
-                                        if (isSaving) {
-                                          return;
-                                        }
-
-                                        unawaited(handleSave());
-                                      },
-                                      errorText: renameErrorText,
-                                    ),
-                                    ...details,
-                                    if (dialogErrorText != null) ...[
-                                      Text(
-                                        dialogErrorText!,
-                                        style: TextStyle(
-                                          color: Theme.of(dialogContext).colorScheme.error,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                TextButton(
-                                  onPressed: isSaving
-                                      ? null
-                                      : () => Navigator.of(dialogContext).pop(),
-                                  child: Text(l10n.close),
-                                ),
-                                const SizedBox(width: 8),
-                                FilledButton(
-                                  onPressed: isSaving ? null : handleSave,
-                                  child: isSaving
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : Text(l10n.save),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              );
-            },
-          );
-      },
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => _ConfigEditorPage(
+          file: file,
+          initialName: _configEditableName(file),
+          globalValues: globalValues,
+          interfaces: interfaces,
+          peers: peers,
+          editableInterfaceKeys: _editableConfigFieldKeys('interface'),
+          editablePeerKeys: _editableConfigFieldKeys('peer'),
+          configFieldControllerKeyBuilder: _configFieldControllerKey,
+          isEditableField: _isEditableConfigField,
+          validateRename: (rawName) => _validateConfigRename(file, rawName, l10n),
+          saveEditedFields: (controllers) => _saveEditedConfigFields(file, controllers),
+          renameConfig: (rawName) async {
+            final renameResult = await _renameImportedConfig(file, rawName);
+            return renameResult.error;
+          },
+        ),
+      ),
     );
   }
 
@@ -2447,6 +2459,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final secondaryActionBorderSide = isDark
         ? const BorderSide(color: Colors.white, width: 2)
         : BorderSide.none;
+    final connectActionDecoration = BoxDecoration(
+      borderRadius: const BorderRadius.all(Radius.circular(12)),
+      boxShadow: secondaryActionDecoration.boxShadow,
+    );
     final systemUiOverlayStyle = (isDark
             ? SystemUiOverlayStyle.light
             : SystemUiOverlayStyle.dark)
@@ -2650,38 +2666,41 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                 const SizedBox(height: 8),
                                 SizedBox(
                                   height: _mainActionButtonHeight,
-                                  child: AnimatedOpacity(
-                                    duration: connectionAnimDuration,
-                                    curve: connectionAnimCurve,
-                                    opacity: connectButtonOpacity,
-                                    child: ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        minimumSize: const Size.fromHeight(_mainActionButtonHeight),
-                                        padding: EdgeInsets.zero,
-                                        backgroundColor: connectButtonBackgroundColor,
-                                        foregroundColor: connectButtonForegroundColor,
-                                        disabledBackgroundColor: connectBlockedBySelection
-                                            ? connectButtonBackgroundColor
-                                            : connectButtonBackgroundColor.withValues(alpha: 0.24),
-                                        disabledForegroundColor: connectBlockedBySelection
-                                            ? connectButtonForegroundColor
-                                            : connectButtonForegroundColor.withValues(alpha: 0.45),
-                                        elevation: 0,
-                                        shape: actionButtonShape,
-                                        textStyle: actionButtonTextStyle,
-                                      ),
-                                      onPressed: _isConnecting
-                                          ? null
-                                          : (_isConnected
-                                              ? _disconnectWireGuard
-                                              : (canConnect ? _connectWireGuard : null)),
-                                      child: Text(
-                                        _isConnected
-                                            ? '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}'
-                                            : l10n.connect,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w700,
+                                  child: DecoratedBox(
+                                    decoration: connectActionDecoration,
+                                    child: AnimatedOpacity(
+                                      duration: connectionAnimDuration,
+                                      curve: connectionAnimCurve,
+                                      opacity: connectButtonOpacity,
+                                      child: ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          minimumSize: const Size.fromHeight(_mainActionButtonHeight),
+                                          padding: EdgeInsets.zero,
+                                          backgroundColor: connectButtonBackgroundColor,
+                                          foregroundColor: connectButtonForegroundColor,
+                                          disabledBackgroundColor: connectBlockedBySelection
+                                              ? connectButtonBackgroundColor
+                                              : connectButtonBackgroundColor.withValues(alpha: 0.24),
+                                          disabledForegroundColor: connectBlockedBySelection
+                                              ? connectButtonForegroundColor
+                                              : connectButtonForegroundColor.withValues(alpha: 0.45),
+                                          elevation: 0,
+                                          shape: actionButtonShape,
+                                          textStyle: actionButtonTextStyle,
+                                        ),
+                                        onPressed: _isConnecting
+                                            ? null
+                                            : (_isConnected
+                                                ? _disconnectWireGuard
+                                                : (canConnect ? _connectWireGuard : null)),
+                                        child: Text(
+                                          _isConnected
+                                              ? '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}'
+                                              : l10n.connect,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                         ),
                                       ),
                                     ),
