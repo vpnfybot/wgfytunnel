@@ -1,9 +1,9 @@
 {
-  "dart.androidSdkPath": "C:\\Users\\vayzer\\AppData\\Local\\Android\\sdk",
-  "android.adbPath": "C:\\Users\\vayzer\\AppData\\Local\\Android\\sdk\\platform-tools\\adb.exe",
+  "dart.androidSdkPath": "C:\\Users\\xovayzer\\AppData\\Local\\Android\\Sdk",
+  "android.adbPath": "C:\\Users\\xovayzer\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe",
   "terminal.integrated.env.windows": {
-    "ANDROID_SDK_ROOT": "C:\\Users\\vayzer\\AppData\\Local\\Android\\sdk",
-    "ANDROID_HOME": "C:\\Users\\vayzer\\AppData\\Local\\Android\\sdk",
-    "PATH": "C:\\Users\\vayzer\\AppData\\Local\\Android\\sdk\\platform-tools;${env:PATH}"
+    "ANDROID_SDK_ROOT": "C:\\Users\\xovayzer\\AppData\\Local\\Android\\Sdk",
+    "ANDROID_HOME": "C:\\Users\\xovayzer\\AppData\\Local\\Android\\Sdk",
+    "PATH": "C:\\Users\\xovayzer\\Documents\\GitHub_vpnfybot\\wgfytunnel\\.vscode\\bin;C:\\Users\\xovayzer\\AppData\\Local\\Android\\Sdk\\platform-tools;${env:PATH}"
   }
 }

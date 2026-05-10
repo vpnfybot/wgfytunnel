@@ -217,8 +217,8 @@ class MainActivity : FlutterActivity() {
 		}
 
 		val statusMessage = when {
-			domainMode == SplitTunnelDomainMode.INCLUDE -> "VPN: только выбранные сайты через туннель (${domainList.joinToString(", ")})"
-			domainMode == SplitTunnelDomainMode.EXCLUDE -> "VPN: все сайты кроме выбранных через туннель (${domainList.joinToString(", ")})"
+			domainMode == SplitTunnelDomainMode.INCLUDE -> "VPN: только выбранные домены через туннель (${domainList.joinToString(", ")})"
+			domainMode == SplitTunnelDomainMode.EXCLUDE -> "VPN: все домены кроме выбранных через туннель (${domainList.joinToString(", ")})"
 			splitMode == SplitTunnelMode.ALL -> "VPN подключен для всей системы"
 			splitMode == SplitTunnelMode.INCLUDE -> "VPN подключен только для выбранных приложений"
 			splitMode == SplitTunnelMode.EXCLUDE -> "VPN подключен для всей системы, кроме выбранных приложений"
@@ -371,8 +371,8 @@ class MainActivity : FlutterActivity() {
 
 		val statusMessage = when (domainMode) {
 			SplitTunnelDomainMode.ALL -> "VPN sing-box подключен для всей системы"
-			SplitTunnelDomainMode.INCLUDE -> "VPN sing-box: только выбранные сайты через туннель"
-			SplitTunnelDomainMode.EXCLUDE -> "VPN sing-box: все сайты кроме выбранных через туннель"
+			SplitTunnelDomainMode.INCLUDE -> "VPN sing-box: только выбранные домены через туннель"
+			SplitTunnelDomainMode.EXCLUDE -> "VPN sing-box: все домены кроме выбранных через туннель"
 		}
 
 		// Check VPN permission

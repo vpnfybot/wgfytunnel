@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_update_service.dart';
@@ -17,8 +18,11 @@ import 'l10n/language_service.dart';
 import 'qr_config_scanner_page.dart';
 import 'split_tunnel_prefs.dart';
 import 'split_tunnel_settings_page.dart';
+import 'subscription_service.dart';
 import 'theme_service.dart';
 import 'wg_config_parser.dart';
+
+const double _elementBorderRadius = 12.0;
 
 enum SplitTunnelMode {
   all('all', 'Вся система через VPN', 'Через VPN будет идти трафик всей системы.'),
@@ -399,9 +403,9 @@ class _ConfigEditorPageState extends State<_ConfigEditorPage> {
 }
 
 enum SplitTunnelDomainMode {
-  all('all', 'Все сайты через VPN', 'Весь трафик идет через VPN без доменных ограничений.'),
-  include('include', 'Только указанные сайты', 'Через VPN идут только перечисленные домены (остальной трафик — напрямую).'),
-  exclude('exclude', 'Все сайты кроме указанных', 'Через VPN идет весь трафик, кроме перечисленных доменов.');
+  all('all', 'Все домены через VPN', 'Весь трафик идет через VPN без доменных ограничений.'),
+  include('include', 'Только указанные домены', 'Через VPN идут только перечисленные домены (остальной трафик — напрямую).'),
+  exclude('exclude', 'Все домены кроме указанных', 'Через VPN идет весь трафик, кроме перечисленных доменов.');
 
   const SplitTunnelDomainMode(this.wireValue, this.label, this.description);
 
@@ -426,6 +430,11 @@ class InstalledApp {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isAndroid) {
+    try {
+      await SubscriptionService.initializeAndroidAutomation();
+    } catch (_) {}
+  }
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   final languageService = LanguageService();
   final themeService = ThemeService();
@@ -472,11 +481,15 @@ class MyApp extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_elementBorderRadius),
+          ),
         ),
       ),
-      inputDecorationTheme: const InputDecorationTheme(
-        border: OutlineInputBorder(),
+      inputDecorationTheme: InputDecorationTheme(
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(_elementBorderRadius),
+        ),
       ),
     );
   }
@@ -509,11 +522,15 @@ class MyApp extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.white,
           foregroundColor: Colors.black,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_elementBorderRadius),
+          ),
         ),
       ),
-      inputDecorationTheme: const InputDecorationTheme(
-        border: OutlineInputBorder(),
+      inputDecorationTheme: InputDecorationTheme(
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(_elementBorderRadius),
+        ),
       ),
     );
   }
@@ -560,6 +577,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   List<File> _importedConfigs = const [];
   Set<String> _pinnedConfigPaths = <String>{};
   Map<String, String> _configEndpointsByPath = const <String, String>{};
+  Map<String, String> _configActiveUntilByPath = const <String, String>{};
   Map<String, EndpointCountryInfo> _configCountriesByPath =
       const <String, EndpointCountryInfo>{};
   File? _selectedConf;
@@ -569,10 +587,14 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   bool _isLoadingImportedConfigs = true;
   String? _inlineMessageText;
   Timer? _inlineMessageTimer;
+  Timer? _floatingNoticeTimer;
+  String? _floatingNoticeText;
+  bool _floatingNoticeIsError = false;
   int _rxBytes = 0;
   int _txBytes = 0;
   Timer? _statsTimer;
   DateTime? _connectionStartTime;
+  static const String _connectionStartTimeKey = 'connectionStartTime';
   Timer? _uptimeTimer;
   int _tunnelStatusRevision = 0;
   SplitTunnelMode _splitTunnelMode = SplitTunnelMode.all;
@@ -583,16 +605,24 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   final Map<String, EndpointCountryInfo?> _countryInfoByLookupKey =
       <String, EndpointCountryInfo?>{};
   Set<String> _countryLookupsInFlight = <String>{};
+  Timer? _subscriptionsRefreshTimer;
+  final ScrollController _configsListScrollController = ScrollController();
+  bool _wasConfigListReorderedForActiveTunnel = false;
+  bool _isSendingSelectedConfigUpdate = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_restoreStoredSubscriptionState());
     _restoreImportedConfigs();
+    _startSubscriptionsRefreshTimer();
     _refreshSplitTunnelSelections();
     _refreshTunnelStatus();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_checkForAppUpdateOnLaunch());
+      unawaited(_requestSubscriptionNotificationPermission());
+      unawaited(_refreshSubscriptions(force: true));
     });
   }
 
@@ -600,16 +630,121 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _clearInlineMessage();
+    _floatingNoticeTimer?.cancel();
     _statsTimer?.cancel();
     _uptimeTimer?.cancel();
+    _subscriptionsRefreshTimer?.cancel();
+    _configsListScrollController.dispose();
     super.dispose();
   }
 
+  Future<void> _restoreStoredSubscriptionState() async {
+    final activeUntilByPath =
+        await SubscriptionService.loadStoredActiveUntilByPath();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _configActiveUntilByPath = activeUntilByPath;
+    });
+  }
+
+  void _startSubscriptionsRefreshTimer() {
+    _subscriptionsRefreshTimer?.cancel();
+    _subscriptionsRefreshTimer = Timer.periodic(
+      SubscriptionService.refreshInterval,
+      (_) {
+        unawaited(_refreshSubscriptions(force: true));
+      },
+    );
+  }
+
+  Future<void> _requestSubscriptionNotificationPermission() async {
+    if (!Platform.isAndroid) {
+      return;
+    }
+
+    await SubscriptionService.requestNotificationPermission();
+  }
+
+  Future<void> _refreshSubscriptions({bool force = false}) async {
+    final shouldRefresh =
+        force || await SubscriptionService.shouldRefreshSubscriptions();
+    if (shouldRefresh) {
+      final activeUntilByPath = await SubscriptionService.refreshAllSubscriptions();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _configActiveUntilByPath = activeUntilByPath;
+      });
+    }
+
+    if (Platform.isAndroid) {
+      await SubscriptionService.notifyExpiredSubscriptionsIfNeeded();
+    }
+  }
+
+  void _syncConfigListScrollForActiveTunnel(bool isReorderedForActiveTunnel) {
+    if (_wasConfigListReorderedForActiveTunnel == isReorderedForActiveTunnel) {
+      return;
+    }
+
+    _wasConfigListReorderedForActiveTunnel = isReorderedForActiveTunnel;
+    if (!isReorderedForActiveTunnel) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_configsListScrollController.hasClients) {
+        return;
+      }
+
+      _configsListScrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
     if (state == AppLifecycleState.resumed) {
       _refreshSplitTunnelSelections();
-      _refreshTunnelStatus();
+      await _refreshTunnelStatusAndRestoreTime();
+      await _refreshSubscriptions();
+    }
+  }
+
+  Future<void> _refreshTunnelStatusAndRestoreTime() async {
+    final refreshRevision = _tunnelStatusRevision;
+    try {
+      final status = await _wireGuardChannel.invokeMethod<Map<dynamic, dynamic>>('getWireGuardStatus');
+      if (!mounted || refreshRevision != _tunnelStatusRevision) return;
+      final connected = status?['connected'] == true;
+      setState(() {
+        _isConnected = connected;
+      });
+      if (connected) {
+        // Попробуем восстановить время подключения
+        final prefs = await SharedPreferences.getInstance();
+        final millis = prefs.getInt(_connectionStartTimeKey);
+        if (millis != null) {
+          _connectionStartTime = DateTime.fromMillisecondsSinceEpoch(millis);
+        }
+        _startStatsPolling(restoreTime: true);
+      } else {
+        _stopStatsPolling();
+      }
+    } catch (_) {
+      if (!mounted || refreshRevision != _tunnelStatusRevision) return;
+      setState(() {
+        _isConnected = false;
+      });
+      _stopStatsPolling();
     }
   }
 
@@ -656,7 +791,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             backgroundColor: colorScheme.surface,
             surfaceTintColor: Colors.transparent,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(28),
+              borderRadius: BorderRadius.circular(_elementBorderRadius),
               side: Theme.of(dialogContext).brightness == Brightness.dark
                   ? const BorderSide(color: Colors.white, width: 1)
                   : BorderSide.none,
@@ -879,6 +1014,14 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       updatedEndpointsByPath[actualRenamedFile.path] = endpointText;
     }
 
+    final updatedActiveUntilByPath = Map<String, String>.from(
+      _configActiveUntilByPath,
+    );
+    final activeUntilText = updatedActiveUntilByPath.remove(file.path);
+    if (activeUntilText != null) {
+      updatedActiveUntilByPath[actualRenamedFile.path] = activeUntilText;
+    }
+
     final updatedCountriesByPath =
         Map<String, EndpointCountryInfo>.from(_configCountriesByPath);
     final countryInfo = updatedCountriesByPath.remove(file.path);
@@ -894,6 +1037,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _importedConfigs = updatedConfigs;
         _pinnedConfigPaths = updatedPinnedPaths;
         _configEndpointsByPath = updatedEndpointsByPath;
+        _configActiveUntilByPath = updatedActiveUntilByPath;
         _configCountriesByPath = updatedCountriesByPath;
         _selectedConf = updatedSelectedConfig;
       });
@@ -903,6 +1047,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       updatedConfigs,
       selectedConfig: updatedSelectedConfig,
       pinnedPaths: updatedPinnedPaths,
+    );
+    await SubscriptionService.renameConfigPathState(
+      file.path,
+      actualRenamedFile.path,
     );
 
     return (file: actualRenamedFile, error: null);
@@ -1592,6 +1740,58 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     await ImportedConfigsPrefs.saveSelectedPath(file.path);
   }
 
+  Future<void> _sendSelectedConfigUpdate(File file) async {
+    if (_isSendingSelectedConfigUpdate) {
+      return;
+    }
+
+    final l10n = AppLocalizations.of(context);
+    final configName = _configName(file);
+
+    if (mounted) {
+      setState(() {
+        _isSendingSelectedConfigUpdate = true;
+      });
+    }
+
+    try {
+      final result = await SubscriptionService.updateSubscriptionForPath(
+        file.path,
+      );
+      if (result.error != null) {
+        _showFloatingNotice(
+          l10n.configUpdateErrorMessage(configName),
+          isError: true,
+        );
+        return;
+      }
+
+      final activeUntilByPath =
+          await SubscriptionService.loadStoredActiveUntilByPath();
+      if (mounted) {
+        setState(() {
+          _configActiveUntilByPath = activeUntilByPath;
+        });
+      }
+
+      if (Platform.isAndroid) {
+        await SubscriptionService.notifyExpiredSubscriptionsIfNeeded();
+      }
+      _showFloatingNotice(l10n.configUpdatedMessage(configName));
+    } catch (_) {
+      _showFloatingNotice(
+        l10n.configUpdateErrorMessage(configName),
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSendingSelectedConfigUpdate = false;
+        });
+      }
+    }
+  }
+
   void _removeImportedConfig(File file) {
     final updatedPinnedPaths = Set<String>.from(_pinnedConfigPaths)
       ..remove(file.path);
@@ -1599,6 +1799,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         .where((config) => config.path != file.path)
         .toList(growable: false);
     final updatedEndpointsByPath = Map<String, String>.from(_configEndpointsByPath)
+      ..remove(file.path);
+    final updatedActiveUntilByPath = Map<String, String>.from(_configActiveUntilByPath)
       ..remove(file.path);
     final updatedCountriesByPath =
         Map<String, EndpointCountryInfo>.from(_configCountriesByPath)
@@ -1613,6 +1815,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       _importedConfigs = updatedConfigs;
       _pinnedConfigPaths = updatedPinnedPaths;
       _configEndpointsByPath = updatedEndpointsByPath;
+      _configActiveUntilByPath = updatedActiveUntilByPath;
       _configCountriesByPath = updatedCountriesByPath;
       _selectedConf = nextSelectedConfig;
       _parsedConf = nextParsedConfig;
@@ -1624,6 +1827,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       removedSelectedConfig,
       updatedPinnedPaths,
     );
+    unawaited(SubscriptionService.removeConfigPathState(file.path));
   }
 
   Future<void> _syncRemovedConfig(
@@ -1675,10 +1879,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
   }
 
-  void _startStatsPolling() {
+  void _startStatsPolling({bool restoreTime = false}) async {
     _statsTimer?.cancel();
     _uptimeTimer?.cancel();
-    _connectionStartTime = DateTime.now();
+    if (!restoreTime || _connectionStartTime == null) {
+      _connectionStartTime = DateTime.now();
+      // Сохраняем время подключения
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_connectionStartTimeKey, _connectionStartTime!.millisecondsSinceEpoch);
+    }
     _fetchStats();
     _uptimeTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
@@ -1688,12 +1897,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     });
   }
 
-  void _stopStatsPolling() {
+  void _stopStatsPolling() async {
     _statsTimer?.cancel();
     _statsTimer = null;
     _uptimeTimer?.cancel();
     _uptimeTimer = null;
     _connectionStartTime = null;
+    // Удаляем сохранённое время подключения
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_connectionStartTimeKey);
     if (mounted) {
       setState(() {
         _rxBytes = 0;
@@ -2009,6 +2221,39 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     });
   }
 
+  void _showFloatingNotice(String text, {bool isError = false}) {
+    if (!mounted) {
+      return;
+    }
+
+    _floatingNoticeTimer?.cancel();
+    setState(() {
+      _floatingNoticeText = text;
+      _floatingNoticeIsError = isError;
+    });
+    _floatingNoticeTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) {
+        return;
+      }
+      _clearFloatingNotice();
+    });
+  }
+
+  void _clearFloatingNotice() {
+    _floatingNoticeTimer?.cancel();
+    _floatingNoticeTimer = null;
+    if (!mounted) {
+      _floatingNoticeText = null;
+      _floatingNoticeIsError = false;
+      return;
+    }
+
+    setState(() {
+      _floatingNoticeText = null;
+      _floatingNoticeIsError = false;
+    });
+  }
+
   void _clearInlineMessage() {
     _inlineMessageTimer?.cancel();
     _inlineMessageTimer = null;
@@ -2033,6 +2278,119 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       width: width,
       height: height,
       fit: fit,
+    );
+  }
+
+  Widget _buildFloatingNoticeOverlay() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final isVisible = _floatingNoticeText != null;
+    final backgroundColor = isDark ? Colors.white : Colors.black;
+    final foregroundColor = isDark ? Colors.black : Colors.white;
+    final shadowColor = isDark
+        ? const Color.fromRGBO(255, 255, 255, 0.20)
+        : const Color.fromRGBO(0, 0, 0, 0.20);
+    final iconColor = _floatingNoticeIsError
+        ? const Color(0xFFFF5A5F)
+        : foregroundColor;
+
+    return Positioned(
+      top: 0,
+      left: 16,
+      right: 16,
+      child: IgnorePointer(
+        ignoring: !isVisible,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeOutCubic,
+          transitionBuilder: (child, animation) {
+            final curvedAnimation = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+            );
+            return FadeTransition(
+              opacity: curvedAnimation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, -0.12),
+                  end: Offset.zero,
+                ).animate(curvedAnimation),
+                child: child,
+              ),
+            );
+          },
+          child: !isVisible
+              ? const SizedBox.shrink(key: ValueKey<String>('hidden-notice'))
+              : Center(
+                  key: ValueKey<String>(
+                    'visible-notice-${_floatingNoticeText!}-$_floatingNoticeIsError',
+                  ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: Dismissible(
+                      key: ValueKey<String>(
+                        'dismiss-notice-${_floatingNoticeText!}-$_floatingNoticeIsError',
+                      ),
+                      direction: DismissDirection.horizontal,
+                      onDismissed: (_) => _clearFloatingNotice(),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: backgroundColor,
+                            borderRadius: const BorderRadius.all(
+                              Radius.circular(_elementBorderRadius),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: shadowColor,
+                                blurRadius: 8,
+                                spreadRadius: 0,
+                                offset: Offset.zero,
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _floatingNoticeIsError
+                                      ? Icons.error_outline_rounded
+                                      : Icons.check_circle_outline_rounded,
+                                  color: iconColor,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    _floatingNoticeText ?? '',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: foregroundColor,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: _clearFloatingNotice,
+                                  icon: Icon(
+                                    Icons.close_rounded,
+                                    color: foregroundColor,
+                                  ),
+                                  splashRadius: 18,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+        ),
+      ),
     );
   }
 
@@ -2144,23 +2502,46 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             ),
           ]
         : _importedConfigs;
+    _syncConfigListScrollForActiveTunnel(isReorderedForActiveTunnel);
 
     const configItemSpacing = 4.0;
     const listTopPadding = 12.0;
     const listBottomPadding = 8.0;
+    const configDateSpacing = 6.0;
+    const configDateHeight = 18.0;
+    double configDateExtraHeightForPath(String path) {
+      final activeUntilText = _configActiveUntilByPath[path];
+      return activeUntilText == null || activeUntilText.trim().isEmpty
+          ? 0.0
+          : configDateSpacing + configDateHeight;
+    }
+
+    double configItemExtentForPath(String path) {
+      return _mainActionButtonHeight +
+          configItemSpacing +
+          configDateExtraHeightForPath(path);
+    }
+
+    final totalDateExtraHeight = displayedConfigs.fold<double>(
+      0.0,
+      (sum, file) => sum + configDateExtraHeightForPath(file.path),
+    );
     final totalContentHeight =
         (displayedConfigs.length * _mainActionButtonHeight) +
         ((displayedConfigs.isNotEmpty ? displayedConfigs.length - 1 : 0) *
             configItemSpacing) +
+        totalDateExtraHeight +
         listTopPadding +
         listBottomPadding;
     final shouldShowBottomShadow = totalContentHeight > viewportHeight;
-    final configItemExtent = _mainActionButtonHeight + configItemSpacing;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final selectedConfigMoveExtent = hasSelectedConfigInList
+        ? configItemExtentForPath(_selectedConf!.path)
+        : 0.0;
 
     return Stack(
       children: [
         ListView.separated(
+          controller: _configsListScrollController,
           padding: const EdgeInsets.fromLTRB(
             16,
             listTopPadding,
@@ -2176,18 +2557,24 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             final isInactiveWhileConnected =
               (_isConnected || _isConnecting) && !isSelected;
             final endpointText = _configEndpointsByPath[file.path] ?? '-';
+            final activeUntilText = _configActiveUntilByPath[file.path];
+            final showActiveUntil =
+                activeUntilText != null &&
+                activeUntilText.trim().isNotEmpty;
             final isDark = Theme.of(context).brightness == Brightness.dark;
             final itemForegroundColor =
               isDark ? Colors.white : colorScheme.onSurface;
             final endpointColor =
               isDark ? Colors.white : colorScheme.onSurfaceVariant;
+            final itemContentOpacity =
+              isDark && isInactiveWhileConnected ? 0.5 : 1.0;
             final cardBackgroundColor = isDark
               ? Colors.transparent
               : (isInactiveWhileConnected
-                ? Colors.white.withOpacity(0.2)
+                ? Colors.white.withValues(alpha: 0.2)
                 : Colors.white);
             final cardBorder = isDark
-              ? Border.all(color: Colors.white, width: 2)
+              ? Border.all(color: const Color(0xFF141414), width: 2)
               : null;
             final countryBadge = _buildConfigCountryBadge(
               filePath: file.path,
@@ -2196,7 +2583,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               colorScheme: colorScheme,
               forceWhiteIcon: isDark,
             );
-            final dismissibleBorderRadius = BorderRadius.circular(16);
+            final dismissibleBorderRadius = BorderRadius.circular(
+              _elementBorderRadius,
+            );
             final dismissDirection = isInactiveWhileConnected
                 ? DismissDirection.none
                 : (_isConnected
@@ -2209,10 +2598,16 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                     selectedOriginalIndex <= 0
                 ? 0.0
                 : isSelected
-                    ? selectedOriginalIndex * configItemExtent
+                ? _importedConfigs
+                  .take(selectedOriginalIndex)
+                  .fold<double>(
+                    0.0,
+                    (sum, config) =>
+                      sum + configItemExtentForPath(config.path),
+                  )
                     : (originalIndex >= 0 &&
                           originalIndex < selectedOriginalIndex
-                      ? -configItemExtent
+                  ? -selectedConfigMoveExtent
                       : 0.0);
 
             return TweenAnimationBuilder<double>(
@@ -2287,102 +2682,169 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                   return true;
                 },
                 onDismissed: (_) => _removeImportedConfig(file),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  decoration: BoxDecoration(
-                    color: cardBackgroundColor,
-                    borderRadius: dismissibleBorderRadius,
-                    border: cardBorder,
-                    boxShadow: isDark
-                        ? null
-                        : const [
-                            BoxShadow(
-                              color: Color.fromRGBO(0, 0, 0, 0.20),
-                              blurRadius: 8,
-                              spreadRadius: 0,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                  ),
-                  child: Material(
-                    color: cardBackgroundColor,
-                    borderRadius: dismissibleBorderRadius,
-                    clipBehavior: Clip.antiAlias,
-                    child: Ink(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
                       decoration: BoxDecoration(
                         color: cardBackgroundColor,
                         borderRadius: dismissibleBorderRadius,
+                        border: cardBorder,
+                        boxShadow: isDark
+                            ? null
+                            : const [
+                                BoxShadow(
+                                  color: Color.fromRGBO(0, 0, 0, 0.20),
+                                  blurRadius: 8,
+                                  spreadRadius: 0,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
                       ),
-                      child: InkWell(
+                      child: Material(
+                        color: cardBackgroundColor,
                         borderRadius: dismissibleBorderRadius,
-                        onTap: isInactiveWhileConnected
-                            ? null
-                            : () => _selectImportedConfig(file),
-                        onLongPress: isInactiveWhileConnected
-                            ? null
-                            : () => _showConfigInfoDialog(file),
-                        child: SizedBox(
-                          height: _mainActionButtonHeight,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Row(
-                              children: [
-                                countryBadge,
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
+                        clipBehavior: Clip.antiAlias,
+                        child: Ink(
+                          decoration: BoxDecoration(
+                            color: cardBackgroundColor,
+                            borderRadius: dismissibleBorderRadius,
+                          ),
+                          child: InkWell(
+                            borderRadius: dismissibleBorderRadius,
+                            onTap: isInactiveWhileConnected
+                                ? null
+                                : () => _selectImportedConfig(file),
+                            onLongPress: isInactiveWhileConnected
+                                ? null
+                                : () => _showConfigInfoDialog(file),
+                            child: SizedBox(
+                              height: _mainActionButtonHeight,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: Opacity(
+                                  opacity: itemContentOpacity,
+                                  child: Row(
                                     children: [
-                                      Text(
-                                        _displayConfigName(
-                                          file,
-                                          endpointText: endpointText,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: textTheme.titleMedium?.copyWith(
-                                          color: itemForegroundColor,
+                                      countryBadge,
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              _displayConfigName(
+                                                file,
+                                                endpointText: endpointText,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: textTheme.titleMedium?.copyWith(
+                                                color: itemForegroundColor,
+                                              ),
+                                            ),
+                                            Text(
+                                              endpointText,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: textTheme.bodyMedium?.copyWith(
+                                                color: endpointColor,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      Text(
-                                        endpointText,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: textTheme.bodyMedium?.copyWith(
-                                          color: endpointColor,
-                                        ),
+                                      const SizedBox(width: 12),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (isPinned) ...[
+                                            Icon(
+                                              Icons.push_pin,
+                                              color: colorScheme.primary,
+                                              size: 20,
+                                            ),
+                                            const SizedBox(width: 8),
+                                          ],
+                                          if (isSelected) ...[
+                                            SizedBox(
+                                              height: 32,
+                                              width: 32,
+                                              child: FilledButton(
+                                                onPressed: _isSendingSelectedConfigUpdate
+                                                    ? null
+                                                    : () => _sendSelectedConfigUpdate(file),
+                                                style: FilledButton.styleFrom(
+                                                  backgroundColor: isDark
+                                                      ? Colors.white.withValues(alpha: 0.12)
+                                                      : Colors.black,
+                                                  foregroundColor: Colors.white,
+                                                  minimumSize: Size.zero,
+                                                  padding: EdgeInsets.zero,
+                                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                  visualDensity: VisualDensity.compact,
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius: BorderRadius.circular(
+                                                      _elementBorderRadius,
+                                                    ),
+                                                  ),
+                                                ),
+                                                child: _isSendingSelectedConfigUpdate
+                                                    ? const SizedBox(
+                                                        width: 14,
+                                                        height: 14,
+                                                        child: CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                          color: Colors.white,
+                                                        ),
+                                                      )
+                                                    : const Icon(
+                                                        Icons.refresh,
+                                                        size: 18,
+                                                        color: Colors.white,
+                                                      ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                          ],
+                                          if (isSelected)
+                                            Icon(
+                                              Icons.check_circle,
+                                              color: isDark ? Colors.white : Colors.black,
+                                            ),
+                                        ],
                                       ),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (isPinned) ...[
-                                      Icon(
-                                        Icons.push_pin,
-                                        color: colorScheme.primary,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 8),
-                                    ],
-                                    if (isSelected)
-                                      const Icon(
-                                        Icons.check_circle,
-                                        color: Colors.black,
-                                      ),
-                                  ],
-                                ),
-                              ],
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
+                    if (showActiveUntil)
+                      Padding(
+                        padding: const EdgeInsets.only(top: configDateSpacing),
+                        child: Align(
+                          alignment: Alignment.center,
+                          child: Text(
+                            '${l10n.activeUntilLabel} $activeUntilText',
+                            textAlign: TextAlign.center,
+                            style: textTheme.bodySmall?.copyWith(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.78)
+                                  : colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             );
@@ -2402,12 +2864,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
                       colors: [
-                        isDark
-                            ? const Color.fromRGBO(255, 255, 255, 0.18)
-                            : const Color.fromRGBO(0, 0, 0, 0.18),
-                        isDark
-                            ? const Color.fromRGBO(255, 255, 255, 0.0)
-                            : const Color.fromRGBO(0, 0, 0, 0.0),
+                        const Color.fromRGBO(0, 0, 0, 0.20),
+                        const Color.fromRGBO(0, 0, 0, 0.0),
                       ],
                     ),
                   ),
@@ -2424,14 +2882,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final l10n = AppLocalizations.of(context);
     final hasValidConf = _parsedConf?['isValid'] == true;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    const darkButtonBackgroundColor = Color(0xFF141414);
     const disconnectButtonColor = Color.fromRGBO(180, 80, 80, 1);
     final showActiveTunnelUi = _isConnected || _isConnecting;
     final connectButtonBackgroundColor = showActiveTunnelUi
       ? disconnectButtonColor
-      : (isDark ? Colors.white : Colors.black);
+      : (isDark ? darkButtonBackgroundColor : Colors.black);
     final connectButtonForegroundColor = showActiveTunnelUi
       ? Colors.white
-      : (isDark ? Colors.black : Colors.white);
+      : (isDark ? Colors.white : Colors.white);
     const connectionAnimDuration = Duration(milliseconds: 500);
     const connectionAnimCurve = Curves.fastOutSlowIn;
     const defaultConfigsListHeightFactor = 1.0;
@@ -2453,11 +2912,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       fontWeight: FontWeight.w700,
     );
     final actionButtonShape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(_elementBorderRadius),
     );
     final secondaryActionDecoration = BoxDecoration(
       color: isDark ? Colors.transparent : Colors.white,
-      borderRadius: const BorderRadius.all(Radius.circular(12)),
+      borderRadius: const BorderRadius.all(
+        Radius.circular(_elementBorderRadius),
+      ),
       boxShadow: isDark
           ? null
           : const [
@@ -2474,10 +2935,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final secondaryActionForegroundColor =
         isDark ? Colors.white : Colors.black87;
     final secondaryActionBorderSide = isDark
-        ? const BorderSide(color: Colors.white, width: 2)
+      ? BorderSide(color: darkButtonBackgroundColor, width: 2)
         : BorderSide.none;
     final connectActionDecoration = BoxDecoration(
-      borderRadius: const BorderRadius.all(Radius.circular(12)),
+      borderRadius: const BorderRadius.all(
+        Radius.circular(_elementBorderRadius),
+      ),
       boxShadow: secondaryActionDecoration.boxShadow,
     );
     final systemUiOverlayStyle = (isDark
@@ -2485,12 +2948,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             : SystemUiOverlayStyle.dark)
         .copyWith(
           statusBarColor: Colors.transparent,
-          systemNavigationBarColor: isDark ? Colors.white : Colors.black,
-          systemNavigationBarDividerColor: isDark ? Colors.white : Colors.black,
+          systemNavigationBarColor: Colors.black,
+          systemNavigationBarDividerColor: Colors.black,
           statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
           statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
-          systemNavigationBarIconBrightness:
-              isDark ? Brightness.light : Brightness.dark,
+          systemNavigationBarIconBrightness: Brightness.light,
           systemNavigationBarContrastEnforced: false,
         );
 
@@ -2521,21 +2983,27 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               child: SizedBox.square(
                 dimension: 36,
                 child: DecoratedBox(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.all(Radius.circular(12)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Color.fromRGBO(0, 0, 0, 0.20),
-                        blurRadius: 8,
-                        spreadRadius: 0,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
+                  decoration: BoxDecoration(
+                    color: isDark ? darkButtonBackgroundColor : Colors.white,
+                    borderRadius: const BorderRadius.all(
+                      Radius.circular(_elementBorderRadius),
+                    ),
+                    boxShadow: isDark
+                        ? null
+                        : const [
+                            BoxShadow(
+                              color: Color.fromRGBO(0, 0, 0, 0.20),
+                              blurRadius: 8,
+                              spreadRadius: 0,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
                   ),
                   child: Material(
-                    color: Colors.white,
-                    borderRadius: const BorderRadius.all(Radius.circular(12)),
+                    color: isDark ? darkButtonBackgroundColor : Colors.white,
+                    borderRadius: const BorderRadius.all(
+                      Radius.circular(_elementBorderRadius),
+                    ),
                     clipBehavior: Clip.antiAlias,
                     child: InkWell(
                       onTap: () {
@@ -2550,11 +3018,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                           _refreshTunnelStatus();
                         });
                       },
-                      child: const Center(
+                      child: Center(
                         child: Icon(
                           Icons.tune,
                           size: 24,
-                          color: Colors.black87,
+                          color: isDark ? Colors.white : Colors.black87,
                         ),
                       ),
                     ),
@@ -2745,6 +3213,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                 ),
               ],
             ),
+            _buildFloatingNoticeOverlay(),
           ],
         ),
       ),

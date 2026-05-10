@@ -30,15 +30,32 @@ class AppLocalizations {
   String get updateAvailableMessage => _get('Доступна новая версия приложения. Обновить сейчас?');
   String get updateNow => _get('Обновить');
   String get later => _get('Позже');
+  String get activeUntilLabel => _get('Активна до:');
+  String configUpdatedMessage(String configName) {
+    if (language == AppLanguage.ru) {
+      return '$configName обновлена';
+    }
+    return '$configName updated';
+  }
+
+  String configUpdateErrorMessage(String configName) {
+    if (language == AppLanguage.ru) {
+      return 'Ошибка обновления $configName';
+    }
+    return 'Error updating $configName';
+  }
+
   String get importedConfigs => _get('Импортированные конфигурации');
   String get noImportedConfigs => _get('Конфигурации еще не импортированы');
   String get importOrScanWireGuardConfig => _get('Импортируйте или отсканируйте конфигурацию WireGuard');
   String get pinConfig => _get('Закрепить');
   String get unpinConfig => _get('Открепить');
   String get noFileSelected => _get('Файл не выбран');
+  String get settingsTitle => _get('Настройки');
+  String get generalSection => _get('Основные');
   String get splitTunneling => _get('Раздельное туннелирование');
   String get apps => _get('Приложения');
-  String get sites => _get('Сайты');
+  String get sites => _get('Домены');
   String get tunnelMode => _get('Режим туннелирования');
   String get allSystemViaVpn => _get('Вся система через VPN');
   String get onlySelectedApps => _get('Только выбранные приложения');
@@ -52,10 +69,10 @@ class AppLocalizations {
   String get searchApps => _get('Поиск приложений');
   String get appsNotFound => _get('Приложения не найдены');
   String get allTrafficViaVpn => _get('Весь трафик идёт через VPN');
-  String get domainMode => _get('Режим для сайтов');
-  String get allSitesViaVpn => _get('Все сайты через VPN');
-  String get onlySpecifiedDomains => _get('Только указанные сайты');
-  String get allSitesExceptSpecified => _get('Все сайты кроме указанных');
+  String get domainMode => _get('Режим для доменов');
+  String get allSitesViaVpn => _get('Все домены через VPN');
+  String get onlySpecifiedDomains => _get('Только указанные домены');
+  String get allSitesExceptSpecified => _get('Все домены кроме указанных');
   String get allSitesDescription =>
       _get('Весь трафик идет через VPN без доменных ограничений.');
   String get onlyDomainsDescription =>
@@ -63,12 +80,12 @@ class AppLocalizations {
   String get exceptDomainsDescription =>
       _get('Через VPN идет весь трафик, кроме перечисленных доменов.');
   String get selectApps => _get('Выберите приложения');
-  String get selectSites => _get('Выберите сайты');
-  String get selectAppsAndSites => _get('Выберите приложения и сайты');
-    String get addedSites => _get('Добавленные сайты');
-    String get excludedSites => _get('Исключенные сайты');
+  String get selectSites => _get('Выберите домены');
+  String get selectAppsAndSites => _get('Выберите приложения и домены');
+    String get addedSites => _get('Добавленные домены');
+    String get excludedSites => _get('Исключенные домены');
   String get addDomainHint => _get('example.com');
-  String get domainsNotAdded => _get('Сайты не выбраны');
+  String get domainsNotAdded => _get('Домены не выбраны');
   String get enterCorrectDomain => _get('Введите корректный домен (например, example.com)');
   String get failedGetApps => _get('Не удалось получить список приложений');
   String get errorLoadingApps => _get('Ошибка загрузки приложений');
@@ -102,6 +119,7 @@ class AppLocalizations {
   String get tunnelStopped => _get('Туннель остановлен');
   String get languageLabel => _get('Язык');
   String get theme => _get('Тема');
+  String get licensesLabel => _get('Лицензии');
   String get systemTheme => _get('Системная');
   String get lightTheme => _get('Светлая');
   String get darkTheme => _get('Темная');
@@ -171,10 +189,10 @@ class AppLocalizations {
         return 'Failed to disconnect the tunnel';
       case 'VPN sing-box подключен для всей системы':
         return 'VPN sing-box connected for the whole system';
-      case 'VPN sing-box: только выбранные сайты через туннель':
-        return 'VPN sing-box: only selected sites through the tunnel';
-      case 'VPN sing-box: все сайты кроме выбранных через туннель':
-        return 'VPN sing-box: all sites except selected through the tunnel';
+      case 'VPN sing-box: только выбранные домены через туннель':
+        return 'VPN sing-box: only selected domains through the tunnel';
+      case 'VPN sing-box: все домены кроме выбранных через туннель':
+        return 'VPN sing-box: all domains except selected through the tunnel';
       case 'Не удалось запустить sing-box':
         return 'Failed to start sing-box';
       case 'VPN sing-box отключен':
@@ -188,7 +206,7 @@ class AppLocalizations {
       case 'В конфиге отсутствует секция [Peer]':
         return 'The config is missing the [Peer] section';
       case 'Не удалось применить AllowedIPs для доменного режима':
-        return 'Failed to apply AllowedIPs for the site mode';
+        return 'Failed to apply AllowedIPs for the domain mode';
       case 'Конфигурация sing-box не передана':
         return 'sing-box configuration was not provided';
       case 'Не удалось создать VPN интерфейс sing-box':
@@ -201,20 +219,20 @@ class AppLocalizations {
         return 'sing-box was not initialized';
     }
 
-    if (text.startsWith('VPN: только выбранные сайты через туннель (') && text.endsWith(')')) {
-      final sites = text.substring(
-        'VPN: только выбранные сайты через туннель ('.length,
+    if (text.startsWith('VPN: только выбранные домены через туннель (') && text.endsWith(')')) {
+      final domains = text.substring(
+        'VPN: только выбранные домены через туннель ('.length,
         text.length - 1,
       );
-      return 'VPN: only selected sites through the tunnel ($sites)';
+      return 'VPN: only selected domains through the tunnel ($domains)';
     }
 
-    if (text.startsWith('VPN: все сайты кроме выбранных через туннель (') && text.endsWith(')')) {
-      final sites = text.substring(
-        'VPN: все сайты кроме выбранных через туннель ('.length,
+    if (text.startsWith('VPN: все домены кроме выбранных через туннель (') && text.endsWith(')')) {
+      final domains = text.substring(
+        'VPN: все домены кроме выбранных через туннель ('.length,
         text.length - 1,
       );
-      return 'VPN: all sites except selected through the tunnel ($sites)';
+      return 'VPN: all domains except selected through the tunnel ($domains)';
     }
 
     if (text.startsWith('Embedded sing-box недоступен для ABI: ') &&
@@ -249,6 +267,8 @@ class AppLocalizations {
         return 'Configuration selected';
       case 'Импортировать':
         return 'Import';
+      case 'Активна до:':
+        return 'Active until:';
       case 'Где взять конфигурацию':
         return 'Where to get a configuration';
       case 'Вы можете приобрести конфигурацию в боте':
@@ -277,12 +297,16 @@ class AppLocalizations {
         return 'Unpin';
       case 'Файл не выбран':
         return 'No file selected';
+      case 'Настройки':
+        return 'Settings';
+      case 'Основные':
+        return 'General';
       case 'Раздельное туннелирование':
         return 'Split Tunneling';
       case 'Приложения':
         return 'Apps';
-      case 'Сайты':
-        return 'Sites';
+      case 'Домены':
+        return 'Domains';
       case 'Режим туннелирования':
         return 'Tunneling Mode';
       case 'Вся система через VPN':
@@ -303,14 +327,14 @@ class AppLocalizations {
         return 'No apps found';
       case 'Весь трафик идёт через VPN':
         return 'All traffic goes through VPN';
-      case 'Режим для сайтов':
-        return 'Site Mode';
-      case 'Все сайты через VPN':
-        return 'All sites via VPN';
-      case 'Только указанные сайты':
-        return 'Only specified sites';
-      case 'Все сайты кроме указанных':
-        return 'All sites except specified';
+      case 'Режим для доменов':
+        return 'Domain Mode';
+      case 'Все домены через VPN':
+        return 'All domains via VPN';
+      case 'Только указанные домены':
+        return 'Only specified domains';
+      case 'Все домены кроме указанных':
+        return 'All domains except specified';
       case 'Весь трафик идет через VPN без доменных ограничений.':
         return 'All traffic goes through VPN without domain restrictions.';
       case 'Через VPN идут только перечисленные домены (остальной трафик — напрямую).':
@@ -319,18 +343,18 @@ class AppLocalizations {
         return 'All traffic goes through VPN except listed domains.';
       case 'Выберите приложения':
         return 'Select apps';
-      case 'Выберите сайты':
-        return 'Select sites';
-      case 'Выберите приложения и сайты':
-        return 'Select apps and sites';
-      case 'Добавленные сайты':
-        return 'Added sites';
-      case 'Исключенные сайты':
-        return 'Excluded sites';
+      case 'Выберите домены':
+        return 'Select domains';
+      case 'Выберите приложения и домены':
+        return 'Select apps and domains';
+      case 'Добавленные домены':
+        return 'Added domains';
+      case 'Исключенные домены':
+        return 'Excluded domains';
       case 'example.com':
         return 'example.com';
-      case 'Сайты не выбраны':
-        return 'No sites selected';
+      case 'Домены не выбраны':
+        return 'No domains selected';
       case 'Введите корректный домен (например, example.com)':
         return 'Enter a valid domain (e.g., example.com)';
       case 'Не удалось получить список приложений':
@@ -397,6 +421,8 @@ class AppLocalizations {
         return 'Language';
       case 'Тема':
         return 'Theme';
+      case 'Лицензии':
+        return 'Licenses';
       case 'Системная':
         return 'System';
       case 'Светлая':
