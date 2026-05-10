@@ -425,7 +425,14 @@ class SubscriptionService {
         final request = await _subinfoHttpClient.postUrl(uri).timeout(
           _subscriptionRequestTimeout,
         );
+        request.persistentConnection = false;
         request.headers.contentType = ContentType.json;
+        request.headers.set(
+          HttpHeaders.cacheControlHeader,
+          'no-cache, no-store, max-age=0, must-revalidate',
+        );
+        request.headers.set(HttpHeaders.pragmaHeader, 'no-cache');
+        request.headers.set(HttpHeaders.expiresHeader, '0');
         request.add(utf8.encode(payload));
 
         final response = await request.close().timeout(

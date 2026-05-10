@@ -2347,7 +2347,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                 color: shadowColor,
                                 blurRadius: 8,
                                 spreadRadius: 0,
-                                offset: Offset.zero,
+                                offset: const Offset(0, 2),
                               ),
                             ],
                           ),
@@ -2355,31 +2355,49 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                             padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
                             child: Row(
                               children: [
-                                Icon(
-                                  _floatingNoticeIsError
-                                      ? Icons.error_outline_rounded
-                                      : Icons.check_circle_outline_rounded,
-                                  color: iconColor,
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    _floatingNoticeText ?? '',
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: foregroundColor,
-                                      fontWeight: FontWeight.w600,
+                                SizedBox(
+                                  width: 40,
+                                  child: Center(
+                                    child: Icon(
+                                      _floatingNoticeIsError
+                                          ? Icons.error_outline_rounded
+                                          : Icons.check_circle_outline_rounded,
+                                      color: iconColor,
                                     ),
                                   ),
                                 ),
-                                IconButton(
-                                  onPressed: _clearFloatingNotice,
-                                  icon: Icon(
-                                    Icons.close_rounded,
-                                    color: foregroundColor,
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    child: Text(
+                                      _floatingNoticeText ?? '',
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: foregroundColor,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                   ),
-                                  splashRadius: 18,
+                                ),
+                                SizedBox(
+                                  width: 40,
+                                  child: IconButton(
+                                    onPressed: _clearFloatingNotice,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints.tightFor(
+                                      width: 40,
+                                      height: 40,
+                                    ),
+                                    icon: Icon(
+                                      Icons.close_rounded,
+                                      color: foregroundColor,
+                                    ),
+                                    splashRadius: 18,
+                                  ),
                                 ),
                               ],
                             ),
@@ -2629,24 +2647,31 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                     color: Colors.transparent,
                     borderRadius: dismissibleBorderRadius,
                   ),
-                  alignment: Alignment.centerLeft,
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                        color: const Color.fromRGBO(255, 179, 0, 1),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        isPinned ? l10n.unpinConfig : l10n.pinConfig,
-                        style: const TextStyle(
-                          color: Color.fromRGBO(255, 179, 0, 1),
-                          fontWeight: FontWeight.w700,
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: SizedBox(
+                      height: _mainActionButtonHeight,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                              color: const Color.fromRGBO(255, 179, 0, 1),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              isPinned ? l10n.unpinConfig : l10n.pinConfig,
+                              style: const TextStyle(
+                                color: Color.fromRGBO(255, 179, 0, 1),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
                 secondaryBackground: Container(
@@ -2654,24 +2679,31 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                     color: Colors.transparent,
                     borderRadius: dismissibleBorderRadius,
                   ),
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.delete,
-                        color: Color.fromRGBO(198, 40, 40, 1),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        materialL10n.deleteButtonTooltip,
-                        style: const TextStyle(
-                          color: Color.fromRGBO(198, 40, 40, 1),
-                          fontWeight: FontWeight.w600,
+                  child: Align(
+                    alignment: Alignment.topRight,
+                    child: SizedBox(
+                      height: _mainActionButtonHeight,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.delete,
+                              color: Color.fromRGBO(198, 40, 40, 1),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              materialL10n.deleteButtonTooltip,
+                              style: const TextStyle(
+                                color: Color.fromRGBO(198, 40, 40, 1),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
                 confirmDismiss: (direction) async {
@@ -2901,11 +2933,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       ? 0.5
       : 1.0;
     final actionInfoText = _inlineMessageText ?? selectionWarningText;
-    final isSelectionWarningText = actionInfoText == l10n.selectApps ||
-      actionInfoText == l10n.selectSites ||
-      actionInfoText == l10n.selectAppsAndSites;
-    final actionInfoColor = isSelectionWarningText
-      ? disconnectButtonColor
+    final actionInfoColor = actionInfoText != null
+      ? const Color.fromRGBO(180, 80, 80, 1)
         : null;
     const actionButtonTextStyle = TextStyle(
       fontSize: 16,

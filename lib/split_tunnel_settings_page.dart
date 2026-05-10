@@ -37,6 +37,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   SplitTunnelMode _splitTunnelMode = SplitTunnelMode.all;
   Set<String> _selectedPackages = <String>{};
   String _appSearchQuery = '';
+  final TextEditingController _appSearchController = TextEditingController();
   SplitTunnelDomainMode _domainMode = SplitTunnelDomainMode.all;
   final List<String> _domainList = <String>[];
   final TextEditingController _domainInputController = TextEditingController();
@@ -58,6 +59,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   void dispose() {
     _reconnectBannerTimer?.cancel();
     _clearFloatingNotice();
+    _appSearchController.dispose();
     _domainInputController.dispose();
     super.dispose();
   }
@@ -321,7 +323,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                           color: shadowColor,
                           blurRadius: 8,
                           spreadRadius: 0,
-                          offset: Offset.zero,
+                          offset: const Offset(0, 2),
                         ),
                       ],
                     ),
@@ -329,32 +331,50 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                       padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
                       child: Row(
                         children: [
-                          Icon(
-                            icon ??
-                                (isError
-                                    ? Icons.error_outline_rounded
-                                    : Icons.check_circle_outline_rounded),
-                            color: iconColor,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              text,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: foregroundColor,
-                                fontWeight: FontWeight.w600,
+                          SizedBox(
+                            width: 40,
+                            child: Center(
+                              child: Icon(
+                                icon ??
+                                    (isError
+                                        ? Icons.error_outline_rounded
+                                        : Icons.check_circle_outline_rounded),
+                                color: iconColor,
                               ),
                             ),
                           ),
-                          IconButton(
-                            onPressed: _clearFloatingNotice,
-                            icon: Icon(
-                              Icons.close_rounded,
-                              color: foregroundColor,
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              child: Text(
+                                text,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: foregroundColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
-                            splashRadius: 18,
+                          ),
+                          SizedBox(
+                            width: 40,
+                            child: IconButton(
+                              onPressed: _clearFloatingNotice,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints.tightFor(
+                                width: 40,
+                                height: 40,
+                              ),
+                              icon: Icon(
+                                Icons.close_rounded,
+                                color: foregroundColor,
+                              ),
+                              splashRadius: 18,
+                            ),
                           ),
                         ],
                       ),
@@ -635,16 +655,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       subtitleBuilder: (mode) =>
           _localizedSplitTunnelModeDescription(l10n, mode),
       useSwitchIndicator: true,
-      iconBuilder: (mode) {
-        switch (mode) {
-          case SplitTunnelMode.all:
-            return Icons.public_rounded;
-          case SplitTunnelMode.include:
-            return Icons.checklist_rounded;
-          case SplitTunnelMode.exclude:
-            return Icons.block_rounded;
-        }
-      },
     );
 
     if (!mounted || selection == null || selection == _splitTunnelMode) {
@@ -656,6 +666,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       if (selection == SplitTunnelMode.all) {
         _selectedPackages = <String>{};
         _appSearchQuery = '';
+        _appSearchController.clear();
       }
     });
 
@@ -676,16 +687,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       subtitleBuilder: (mode) =>
           _localizedSplitTunnelDomainModeDescription(l10n, mode),
       useSwitchIndicator: true,
-      iconBuilder: (mode) {
-        switch (mode) {
-          case SplitTunnelDomainMode.all:
-            return Icons.language_rounded;
-          case SplitTunnelDomainMode.include:
-            return Icons.playlist_add_check_circle_outlined;
-          case SplitTunnelDomainMode.exclude:
-            return Icons.remove_circle_outline_rounded;
-        }
-      },
     );
 
     if (!mounted || selection == null || selection == _domainMode) {
@@ -1158,97 +1159,123 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       return;
     }
 
-    final searchController = TextEditingController(text: _appSearchQuery);
-    try {
-      await showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        builder: (sheetContext) {
-          final theme = Theme.of(sheetContext);
-          final bottomInset = MediaQuery.viewInsetsOf(sheetContext).bottom;
+    if (_appSearchController.text != _appSearchQuery) {
+      _appSearchController.value = TextEditingValue(
+        text: _appSearchQuery,
+        selection: TextSelection.collapsed(offset: _appSearchQuery.length),
+      );
+    }
 
-          return StatefulBuilder(
-            builder: (context, modalSetState) {
-              final query = searchController.text.trim().toLowerCase();
-              final filteredApps = _installedApps.where((app) {
-                final label = app.label.toLowerCase();
-                final packageName = app.packageName.toLowerCase();
-                return query.isEmpty ||
-                    label.contains(query) ||
-                    packageName.contains(query);
-              }).toList();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        final isDark = theme.brightness == Brightness.dark;
+        final fieldBackgroundColor = isDark ? Colors.white : Colors.black;
+        final fieldForegroundColor = isDark ? Colors.black : Colors.white;
+        final fieldHintColor = fieldForegroundColor.withValues(alpha: 0.62);
+        final bottomInset = MediaQuery.viewInsetsOf(sheetContext).bottom;
 
-              return SafeArea(
+        return StatefulBuilder(
+          builder: (context, modalSetState) {
+            final query = _appSearchController.text.trim().toLowerCase();
+            final filteredApps = _installedApps.where((app) {
+              final label = app.label.toLowerCase();
+              final packageName = app.packageName.toLowerCase();
+              return query.isEmpty ||
+                  label.contains(query) ||
+                  packageName.contains(query);
+            }).toList();
+
+            return SafeArea(
+              child: FractionallySizedBox(
+                heightFactor: 0.82,
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(20, 8, 20, bottomInset + 20),
-                  child: SizedBox(
-                    height: MediaQuery.sizeOf(sheetContext).height * 0.82,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          l10n.selectApps,
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w700,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        l10n.selectApps,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _appSearchController,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: fieldForegroundColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        cursorColor: fieldForegroundColor,
+                        onChanged: (value) {
+                          _appSearchQuery = value;
+                          modalSetState(() {});
+                        },
+                        decoration: InputDecoration(
+                          hintText: l10n.searchApps,
+                          hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                            color: fieldHintColor,
+                          ),
+                          prefixIcon: Icon(
+                            Icons.search_rounded,
+                            color: fieldForegroundColor,
+                          ),
+                          filled: true,
+                          fillColor: fieldBackgroundColor,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                            borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                            borderSide: BorderSide.none,
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                            borderSide: BorderSide.none,
                           ),
                         ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: searchController,
-                          onChanged: (value) {
-                            _appSearchQuery = value;
-                            modalSetState(() {});
-                          },
-                          decoration: InputDecoration(
-                            hintText: l10n.searchApps,
-                            prefixIcon: const Icon(Icons.search_rounded),
-                            filled: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(_settingsBlockRadius),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Expanded(
-                          child: filteredApps.isEmpty
-                              ? Center(
-                                  child: _buildEmptyState(
-                                    icon: Icons.apps_rounded,
-                                    title: l10n.appsNotFound,
-                                  ),
-                                )
-                              : ListView.separated(
-                                  itemCount: filteredApps.length,
-                                  separatorBuilder: (context, index) =>
-                                      const SizedBox(height: 12),
-                                  itemBuilder: (context, index) {
-                                    final app = filteredApps[index];
-                                    return _buildAppTile(
-                                      app,
-                                      onToggle: () {
-                                        _togglePackageSelection(
-                                          app.packageName,
-                                        );
-                                        modalSetState(() {});
-                                      },
-                                    );
-                                  },
+                      ),
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: filteredApps.isEmpty
+                            ? Center(
+                                child: _buildEmptyState(
+                                  icon: Icons.apps_rounded,
+                                  title: l10n.appsNotFound,
                                 ),
-                        ),
-                      ],
-                    ),
+                              )
+                            : ListView.separated(
+                                itemCount: filteredApps.length,
+                                separatorBuilder: (context, index) =>
+                                    const SizedBox(height: 12),
+                                itemBuilder: (context, index) {
+                                  final app = filteredApps[index];
+                                  return _buildAppTile(
+                                    app,
+                                    onToggle: () {
+                                      _togglePackageSelection(
+                                        app.packageName,
+                                      );
+                                      modalSetState(() {});
+                                    },
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
                   ),
                 ),
-              );
-            },
-          );
-        },
-      );
-    } finally {
-      searchController.dispose();
-    }
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _showDomainsPickerSheet() async {
@@ -1263,6 +1290,12 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       showDragHandle: true,
       builder: (sheetContext) {
         final theme = Theme.of(sheetContext);
+        final isDark = theme.brightness == Brightness.dark;
+        final fieldBackgroundColor = isDark ? Colors.white : Colors.black;
+        final fieldForegroundColor = isDark ? Colors.black : Colors.white;
+        final fieldHintColor = fieldForegroundColor.withValues(alpha: 0.62);
+        final addButtonBackgroundColor = isDark ? Colors.white : Colors.black;
+        final addButtonForegroundColor = isDark ? Colors.black : Colors.white;
         final bottomInset = MediaQuery.viewInsetsOf(sheetContext).bottom;
 
         return StatefulBuilder(
@@ -1322,17 +1355,52 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                       const SizedBox(height: 16),
                       TextField(
                         controller: _domainInputController,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: fieldForegroundColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        cursorColor: fieldForegroundColor,
                         textInputAction: TextInputAction.done,
                         onSubmitted: (_) => addDomains(),
                         decoration: InputDecoration(
                           hintText: l10n.addDomainHint,
-                          prefixIcon: const Icon(Icons.language_rounded),
+                          hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                            color: fieldHintColor,
+                          ),
+                          prefixIcon: Icon(
+                            Icons.language_rounded,
+                            color: fieldForegroundColor,
+                          ),
                           suffixIcon: IconButton(
+                            style: IconButton.styleFrom(
+                              backgroundColor: addButtonBackgroundColor,
+                              foregroundColor: addButtonForegroundColor,
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(40, 40),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                  _settingsBlockRadius,
+                                ),
+                              ),
+                            ),
                             onPressed: addDomains,
-                            icon: const Icon(Icons.add_rounded),
+                            icon: Icon(
+                              Icons.add_rounded,
+                              color: addButtonForegroundColor,
+                            ),
                           ),
                           filled: true,
+                          fillColor: fieldBackgroundColor,
                           border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                            borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                            borderSide: BorderSide.none,
+                          ),
+                          focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(_settingsBlockRadius),
                             borderSide: BorderSide.none,
                           ),
