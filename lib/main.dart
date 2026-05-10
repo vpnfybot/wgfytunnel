@@ -1391,15 +1391,18 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     required String endpointText,
     required bool isSelected,
     required ColorScheme colorScheme,
+    bool forceWhiteIcon = false,
   }) {
     final countryInfo = _configCountryInfo(endpointText, filePath);
     final isLookupInFlight = _isConfigCountryLookupInFlight(endpointText);
     final selectedForegroundColor = colorScheme.brightness == Brightness.dark
         ? Colors.white
         : Colors.black;
-    final foregroundColor = isSelected
+    final foregroundColor = forceWhiteIcon
+      ? Colors.white
+      : (isSelected
         ? selectedForegroundColor
-        : colorScheme.onSurfaceVariant;
+        : colorScheme.onSurfaceVariant);
 
     if (isLookupInFlight) {
       return SizedBox(
@@ -1424,7 +1427,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         height: 44,
         child: Icon(
           Icons.public_outlined,
-          color: Colors.black,
+          color: foregroundColor,
         ),
       );
     }
@@ -2153,6 +2156,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         listBottomPadding;
     final shouldShowBottomShadow = totalContentHeight > viewportHeight;
     final configItemExtent = _mainActionButtonHeight + configItemSpacing;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Stack(
       children: [
@@ -2170,21 +2174,27 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             final isSelected = _selectedConf?.path == file.path;
             final isPinned = _pinnedConfigPaths.contains(file.path);
             final isInactiveWhileConnected =
-                (_isConnected || _isConnecting) && !isSelected;
+              (_isConnected || _isConnecting) && !isSelected;
             final endpointText = _configEndpointsByPath[file.path] ?? '-';
             final isDark = Theme.of(context).brightness == Brightness.dark;
             final itemForegroundColor =
-                isDark ? Colors.black : colorScheme.onSurface;
+              isDark ? Colors.white : colorScheme.onSurface;
             final endpointColor =
-                isDark ? Colors.black : colorScheme.onSurfaceVariant;
-            final cardBackgroundColor = isInactiveWhileConnected
-                ? Colors.white.withValues(alpha: 0.2)
-                : Colors.white;
+              isDark ? Colors.white : colorScheme.onSurfaceVariant;
+            final cardBackgroundColor = isDark
+              ? Colors.transparent
+              : (isInactiveWhileConnected
+                ? Colors.white.withOpacity(0.2)
+                : Colors.white);
+            final cardBorder = isDark
+              ? Border.all(color: Colors.white, width: 2)
+              : null;
             final countryBadge = _buildConfigCountryBadge(
               filePath: file.path,
               endpointText: endpointText,
               isSelected: isSelected,
               colorScheme: colorScheme,
+              forceWhiteIcon: isDark,
             );
             final dismissibleBorderRadius = BorderRadius.circular(16);
             final dismissDirection = isInactiveWhileConnected
@@ -2282,14 +2292,17 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                   decoration: BoxDecoration(
                     color: cardBackgroundColor,
                     borderRadius: dismissibleBorderRadius,
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color.fromRGBO(0, 0, 0, 0.20),
-                        blurRadius: 8,
-                        spreadRadius: 0,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
+                    border: cardBorder,
+                    boxShadow: isDark
+                        ? null
+                        : const [
+                            BoxShadow(
+                              color: Color.fromRGBO(0, 0, 0, 0.20),
+                              blurRadius: 8,
+                              spreadRadius: 0,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
                   ),
                   child: Material(
                     color: cardBackgroundColor,
@@ -2376,7 +2389,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
           },
         ),
         if (shouldShowBottomShadow)
-          const Positioned(
+          Positioned(
             bottom: 0,
             left: 0,
             right: 0,
@@ -2389,8 +2402,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
                       colors: [
-                        Color.fromRGBO(0, 0, 0, 0.18),
-                        Color.fromRGBO(0, 0, 0, 0.0),
+                        isDark
+                            ? const Color.fromRGBO(255, 255, 255, 0.18)
+                            : const Color.fromRGBO(0, 0, 0, 0.18),
+                        isDark
+                            ? const Color.fromRGBO(255, 255, 255, 0.0)
+                            : const Color.fromRGBO(0, 0, 0, 0.0),
                       ],
                     ),
                   ),
@@ -2468,8 +2485,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             : SystemUiOverlayStyle.dark)
         .copyWith(
           statusBarColor: Colors.transparent,
-          systemNavigationBarColor: Colors.transparent,
-          systemNavigationBarDividerColor: Colors.transparent,
+          systemNavigationBarColor: isDark ? Colors.white : Colors.black,
+          systemNavigationBarDividerColor: isDark ? Colors.white : Colors.black,
           statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
           statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
           systemNavigationBarIconBrightness:
