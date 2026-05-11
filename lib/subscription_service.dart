@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'imported_configs_prefs.dart';
+import 'l10n/app_localizations.dart';
 import 'wg_config_parser.dart';
 
 const String subscriptionBackgroundTaskUniqueName =
@@ -32,6 +33,11 @@ class SubscriptionService {
   static const Duration refreshInterval = Duration(hours: 2);
   static const Duration backgroundCheckInterval = Duration(minutes: 20);
   static const Duration _subscriptionRequestTimeout = Duration(seconds: 20);
+  static const List<int> _expiryNotificationThresholdHours = <int>[
+    24,
+    48,
+    72,
+  ];
 
   static const String _activeUntilByPathKey =
       'subscription_active_until_by_path';
@@ -44,6 +50,7 @@ class SubscriptionService {
   static const String _notificationChannelName = 'Subscription expiration';
   static const String _notificationChannelDescription =
       'Subscription expiration alerts';
+  static const String _appLanguageKey = 'app_language';
 
   static final HttpClient _subinfoHttpClient = HttpClient()
     ..connectionTimeout = _subscriptionRequestTimeout;
@@ -87,6 +94,19 @@ class SubscriptionService {
         >();
     return await androidImplementation?.requestNotificationsPermission() ??
         false;
+  }
+
+  static Future<bool?> areNotificationsEnabled() async {
+    if (!Platform.isAndroid) {
+      return null;
+    }
+
+    await _ensureNotificationsInitialized();
+    final androidImplementation = _notificationsPlugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    return await androidImplementation?.areNotificationsEnabled();
   }
 
   static Future<bool> shouldRefreshSubscriptions({DateTime? now}) async {
@@ -159,7 +179,7 @@ class SubscriptionService {
     }
 
     final notifiedPaths = await _loadExpiredNotifiedPaths();
-    if (notifiedPaths.remove(path)) {
+    if (_removeNotificationCheckpointsForPath(notifiedPaths, path)) {
       await _saveExpiredNotifiedPaths(notifiedPaths);
     }
   }
@@ -176,11 +196,151 @@ class SubscriptionService {
     }
 
     final notifiedPaths = await _loadExpiredNotifiedPaths();
-    if (notifiedPaths.remove(oldPath)) {
-      notifiedPaths.add(newPath);
-      await _saveExpiredNotifiedPaths(notifiedPaths);
+    var hasNotificationStateChanged = false;
+    final updatedNotifiedPaths = notifiedPaths.map((entry) {
+      final updatedEntry = _renameNotificationCheckpointPath(
+        entry,
+        oldPath,
+        newPath,
+      );
+      if (updatedEntry != entry) {
+        hasNotificationStateChanged = true;
+      }
+      return updatedEntry;
+    }).toSet();
+    if (hasNotificationStateChanged) {
+      await _saveExpiredNotifiedPaths(updatedNotifiedPaths);
     }
   }
+
+  static void _syncNotificationCheckpointsForActiveUntil(
+    Set<String> checkpoints,
+    String path,
+    String activeUntil,
+  ) {
+    final hadLegacyExpiredNotification = checkpoints.remove(path);
+    checkpoints.removeWhere(
+      (entry) =>
+          _notificationEntryMatchesPath(entry, path) &&
+          !_notificationEntryMatchesActiveUntil(entry, path, activeUntil),
+    );
+    if (hadLegacyExpiredNotification && isSubscriptionExpired(activeUntil)) {
+      checkpoints.add(_notificationCheckpointKey(path, activeUntil, 0));
+    }
+  }
+
+  static bool _removeNotificationCheckpointsForPath(
+    Set<String> checkpoints,
+    String path,
+  ) {
+    final originalLength = checkpoints.length;
+    checkpoints.removeWhere((entry) => _notificationEntryMatchesPath(entry, path));
+    return checkpoints.length != originalLength;
+  }
+
+  static bool _notificationEntryMatchesPath(String entry, String path) {
+    return entry == path || entry.startsWith('$path|');
+  }
+
+  static bool _notificationEntryMatchesActiveUntil(
+    String entry,
+    String path,
+    String activeUntil,
+  ) {
+    return entry.startsWith('$path|$activeUntil|');
+  }
+
+  static bool _notificationEntryMatchesImportedPaths(
+    String entry,
+    Set<String> importedPaths,
+  ) {
+    return importedPaths.any((path) => _notificationEntryMatchesPath(entry, path));
+  }
+
+  static String _notificationCheckpointKey(
+    String path,
+    String activeUntil,
+    int hoursBeforeExpiry,
+  ) {
+    return '$path|$activeUntil|$hoursBeforeExpiry';
+  }
+
+  static String _renameNotificationCheckpointPath(
+    String entry,
+    String oldPath,
+    String newPath,
+  ) {
+    if (entry == oldPath) {
+      return newPath;
+    }
+    if (entry.startsWith('$oldPath|')) {
+      return '$newPath${entry.substring(oldPath.length)}';
+    }
+    return entry;
+  }
+
+  static int? _notificationCheckpointHours(String activeUntil) {
+    final expiresAt = _parseSubscriptionDate(activeUntil);
+    if (expiresAt == null) {
+      return null;
+    }
+
+    final expiryMoment = expiresAt.add(const Duration(days: 1));
+    final remaining = expiryMoment.difference(DateTime.now());
+    if (remaining <= Duration.zero) {
+      return 0;
+    }
+
+    for (final hours in _expiryNotificationThresholdHours) {
+      if (remaining <= Duration(hours: hours)) {
+        return hours;
+      }
+    }
+
+    return null;
+  }
+
+  static Future<AppLanguage> _loadNotificationLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedLanguage = prefs.getString(_appLanguageKey);
+    return savedLanguage == 'en' ? AppLanguage.en : AppLanguage.ru;
+  }
+
+  static String _configDisplayName(String path) {
+    return path.split(Platform.pathSeparator).last;
+  }
+
+  static String _notificationTitleForHours(
+    AppLanguage language,
+    String configPath,
+    int hoursBeforeExpiry,
+  ) {
+    final l10n = AppLocalizations(language);
+    final configName = _configDisplayName(configPath);
+    if (hoursBeforeExpiry == 0) {
+      return l10n.subscriptionExpiredNotificationForConfig(configName);
+    }
+    return l10n.subscriptionExpiringLessThan48HoursForConfig(configName);
+  }
+
+  static String? _notificationBodyForHours(int hoursBeforeExpiry) {
+    if (hoursBeforeExpiry == 0) {
+      return null;
+    }
+    return null;
+  }
+
+  static const NotificationDetails _subscriptionNotificationDetails =
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _notificationChannelId,
+          _notificationChannelName,
+          channelDescription: _notificationChannelDescription,
+          icon: 'ic_stat_vpnfy',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+      );
 
   static Future<({String? activeUntil, Object? error})>
   updateSubscriptionForPath(String configPath) async {
@@ -225,10 +385,12 @@ class SubscriptionService {
     await saveStoredActiveUntilByPath(activeUntilByPath);
 
     final notifiedPaths = await _loadExpiredNotifiedPaths();
-    if (!isSubscriptionExpired(activeUntil)) {
-      notifiedPaths.remove(configPath);
-      await _saveExpiredNotifiedPaths(notifiedPaths);
-    }
+    _syncNotificationCheckpointsForActiveUntil(
+      notifiedPaths,
+      configPath,
+      activeUntil,
+    );
+    await _saveExpiredNotifiedPaths(notifiedPaths);
 
     return (activeUntil: activeUntil, error: null);
   }
@@ -250,12 +412,14 @@ class SubscriptionService {
       final result = await updateSubscriptionForPath(path);
       if (result.activeUntil != null) {
         activeUntilByPath[path] = result.activeUntil!;
-        if (!isSubscriptionExpired(result.activeUntil!)) {
-          notifiedPaths.remove(path);
-        }
+        _syncNotificationCheckpointsForActiveUntil(
+          notifiedPaths,
+          path,
+          result.activeUntil!,
+        );
       } else if (!await File(path).exists()) {
         activeUntilByPath.remove(path);
-        notifiedPaths.remove(path);
+        _removeNotificationCheckpointsForPath(notifiedPaths, path);
       }
     }
 
@@ -266,7 +430,9 @@ class SubscriptionService {
           (entry) => importedPathSet.contains(entry.key),
         ),
       );
-      notifiedPaths.removeWhere((path) => !importedPathSet.contains(path));
+      notifiedPaths.removeWhere(
+        (entry) => !_notificationEntryMatchesImportedPaths(entry, importedPathSet),
+      );
     }
 
     await saveStoredActiveUntilByPath(activeUntilByPath);
@@ -292,51 +458,59 @@ class SubscriptionService {
     await notifyExpiredSubscriptionsIfNeeded();
   }
 
-  static Future<void> notifyExpiredSubscriptionsIfNeeded() async {
+  static Future<int> notifyExpiredSubscriptionsIfNeeded() async {
     if (!Platform.isAndroid) {
-      return;
+      return 0;
     }
 
     await _ensureNotificationsInitialized();
     final importedPaths = (await ImportedConfigsPrefs.loadPaths()).toSet();
     final activeUntilByPath = await loadStoredActiveUntilByPath();
     final notifiedPaths = await _loadExpiredNotifiedPaths();
+    final notificationLanguage = await _loadNotificationLanguage();
+    var shownNotificationsCount = 0;
 
-    notifiedPaths.removeWhere((path) => !importedPaths.contains(path));
+    notifiedPaths.removeWhere(
+      (entry) => !_notificationEntryMatchesImportedPaths(entry, importedPaths),
+    );
 
     for (final entry in activeUntilByPath.entries) {
       if (!importedPaths.contains(entry.key)) {
         continue;
       }
 
-      final isExpired = isSubscriptionExpired(entry.value);
-      if (!isExpired) {
-        notifiedPaths.remove(entry.key);
+      final notificationHours = _notificationCheckpointHours(entry.value);
+      if (notificationHours == null) {
         continue;
       }
 
-      if (notifiedPaths.contains(entry.key)) {
+      final checkpointKey = _notificationCheckpointKey(
+        entry.key,
+        entry.value,
+        notificationHours,
+      );
+      final hasLegacyExpiredNotification =
+          notificationHours == 0 && notifiedPaths.contains(entry.key);
+      if (hasLegacyExpiredNotification || notifiedPaths.contains(checkpointKey)) {
         continue;
       }
 
       await _notificationsPlugin.show(
         _notificationIdForPath(entry.key),
-        'Подписка истекла',
-        '${_configDisplayName(entry.key)}: срок подписки истек $entry.value',
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            _notificationChannelId,
-            _notificationChannelName,
-            channelDescription: _notificationChannelDescription,
-            importance: Importance.max,
-            priority: Priority.high,
-          ),
+        _notificationTitleForHours(
+          notificationLanguage,
+          entry.key,
+          notificationHours,
         ),
+        _notificationBodyForHours(notificationHours),
+        _subscriptionNotificationDetails,
       );
-      notifiedPaths.add(entry.key);
+      notifiedPaths.add(checkpointKey);
+      shownNotificationsCount += 1;
     }
 
     await _saveExpiredNotifiedPaths(notifiedPaths);
+    return shownNotificationsCount;
   }
 
   static bool isSubscriptionExpired(String activeUntil) {
@@ -459,10 +633,6 @@ class SubscriptionService {
     }
 
     return (activeUntil: null, error: lastError);
-  }
-
-  static String _configDisplayName(String path) {
-    return path.split(Platform.pathSeparator).last;
   }
 
   static int _notificationIdForPath(String path) {

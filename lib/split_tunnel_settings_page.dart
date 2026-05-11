@@ -10,6 +10,7 @@ import 'l10n/app_localizations.dart';
 import 'l10n/language_service.dart';
 import 'main.dart';
 import 'split_tunnel_prefs.dart';
+import 'subscription_service.dart';
 import 'theme_service.dart';
 
 class SplitTunnelSettingsPage extends StatefulWidget {
@@ -24,6 +25,9 @@ class SplitTunnelSettingsPage extends StatefulWidget {
 
 class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   static const double _settingsBlockRadius = 12.0;
+  static const double _pickerListSpacing = 4.0;
+  static const double _inputRowHeight = 56.0;
+  static const Color _darkThemeOptionColor = Color(0xFF141414);
   static const MethodChannel _wireGuardChannel = MethodChannel(
     'wgfytunnel/wireguard',
   );
@@ -42,10 +46,14 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   final List<String> _domainList = <String>[];
   final TextEditingController _domainInputController = TextEditingController();
   String _appVersion = '0.0.0';
+  bool? _notificationsEnabled;
+  bool _isUpdatingNotificationsPermission = false;
   bool _showReconnectBanner = false;
   Timer? _reconnectBannerTimer;
   Timer? _floatingNoticeTimer;
-  OverlayEntry? _floatingNoticeEntry;
+  String? _floatingNoticeText;
+  bool _floatingNoticeIsError = false;
+  IconData? _floatingNoticeIcon;
   Completer<void>? _appsLoadCompleter;
 
   @override
@@ -53,6 +61,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     super.initState();
     _loadAppVersion();
     _loadPrefs();
+    _loadNotificationsPermissionStatus();
   }
 
   @override
@@ -83,6 +92,48 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   String _sanitizeAppVersion(String version) {
     final match = RegExp(r'\d+\.\d+\.\d+').firstMatch(version);
     return match?.group(0) ?? '0.0.0';
+  }
+
+  Future<void> _loadNotificationsPermissionStatus() async {
+    final enabled = await SubscriptionService.areNotificationsEnabled();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _notificationsEnabled = enabled;
+    });
+  }
+
+  Future<void> _handleNotificationsPermissionAction() async {
+    if (_isUpdatingNotificationsPermission) {
+      return;
+    }
+
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      await _loadNotificationsPermissionStatus();
+      return;
+    }
+
+    setState(() {
+      _isUpdatingNotificationsPermission = true;
+    });
+
+    try {
+      final currentStatus =
+          _notificationsEnabled ??
+          await SubscriptionService.areNotificationsEnabled();
+      if (currentStatus == false) {
+        await SubscriptionService.requestNotificationPermission();
+      }
+      await _loadNotificationsPermissionStatus();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingNotificationsPermission = false;
+        });
+      }
+    }
   }
 
   Future<void> _showAboutDialog() async {
@@ -285,111 +336,12 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       return;
     }
 
-    _clearFloatingNotice();
-    final overlay = Overlay.of(context);
-
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final backgroundColor = isDark ? Colors.white : Colors.black;
-    final foregroundColor = isDark ? Colors.black : Colors.white;
-    final shadowColor = isDark
-      ? const Color.fromRGBO(255, 255, 255, 0.20)
-      : const Color.fromRGBO(0, 0, 0, 0.20);
-    final iconColor = isError ? const Color(0xFFFF5A5F) : foregroundColor;
-
-    final entry = OverlayEntry(
-      builder: (context) {
-        return Positioned(
-          top: MediaQuery.paddingOf(context).top + kToolbarHeight + 8,
-          left: 20,
-          right: 20,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Dismissible(
-                key: ValueKey<String>('settings-notice-$text-$isError-$icon'),
-                direction: DismissDirection.horizontal,
-                onDismissed: (_) => _clearFloatingNotice(),
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: backgroundColor,
-                      borderRadius: const BorderRadius.all(
-                        Radius.circular(_settingsBlockRadius),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: shadowColor,
-                          blurRadius: 8,
-                          spreadRadius: 0,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 40,
-                            child: Center(
-                              child: Icon(
-                                icon ??
-                                    (isError
-                                        ? Icons.error_outline_rounded
-                                        : Icons.check_circle_outline_rounded),
-                                color: iconColor,
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                              child: Text(
-                                text,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: foregroundColor,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                            width: 40,
-                            child: IconButton(
-                              onPressed: _clearFloatingNotice,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints.tightFor(
-                                width: 40,
-                                height: 40,
-                              ),
-                              icon: Icon(
-                                Icons.close_rounded,
-                                color: foregroundColor,
-                              ),
-                              splashRadius: 18,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-
-    _floatingNoticeEntry = entry;
-    overlay.insert(entry);
+    _floatingNoticeTimer?.cancel();
+    setState(() {
+      _floatingNoticeText = text;
+      _floatingNoticeIsError = isError;
+      _floatingNoticeIcon = icon;
+    });
     _floatingNoticeTimer = Timer(const Duration(seconds: 4), () {
       if (!mounted) {
         return;
@@ -401,8 +353,101 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   void _clearFloatingNotice() {
     _floatingNoticeTimer?.cancel();
     _floatingNoticeTimer = null;
-    _floatingNoticeEntry?.remove();
-    _floatingNoticeEntry = null;
+    if (!mounted) {
+      _floatingNoticeText = null;
+      _floatingNoticeIsError = false;
+      _floatingNoticeIcon = null;
+      return;
+    }
+
+    setState(() {
+      _floatingNoticeText = null;
+      _floatingNoticeIsError = false;
+      _floatingNoticeIcon = null;
+    });
+  }
+
+  Widget _buildAppBarNoticeOverlay() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final isVisible = _floatingNoticeText != null;
+    final backgroundColor = isDark ? Colors.white : Colors.black;
+    final foregroundColor = isDark ? Colors.black : Colors.white;
+    return IgnorePointer(
+      ignoring: !isVisible,
+      child: ClipRect(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 320),
+          reverseDuration: const Duration(milliseconds: 220),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) {
+            final curvedAnimation = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic,
+            );
+            return FadeTransition(
+              opacity: curvedAnimation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, -1),
+                  end: Offset.zero,
+                ).animate(curvedAnimation),
+                child: child,
+              ),
+            );
+          },
+          child: !isVisible
+              ? const SizedBox.shrink(key: ValueKey<String>('hidden-settings-notice-overlay'))
+              : SizedBox.expand(
+                  key: ValueKey<String>(
+                    'visible-settings-notice-overlay-${_floatingNoticeText!}-$_floatingNoticeIsError-$_floatingNoticeIcon',
+                  ),
+                  child: Dismissible(
+                    key: ValueKey<String>(
+                      'dismissible-settings-notice-${_floatingNoticeText!}-$_floatingNoticeIsError-$_floatingNoticeIcon',
+                    ),
+                    direction: DismissDirection.up,
+                    resizeDuration: null,
+                    movementDuration: const Duration(milliseconds: 220),
+                    onDismissed: (_) => _clearFloatingNotice(),
+                    child: Material(
+                      color: backgroundColor,
+                      child: SafeArea(
+                        bottom: false,
+                        child: SizedBox(
+                          height: kToolbarHeight,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                    child: Text(
+                                      _floatingNoticeText ?? '',
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: foregroundColor,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
   }
 
   void _hideReconnectBanner() {
@@ -530,6 +575,9 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     String Function(T value)? subtitleBuilder,
     IconData Function(T value)? iconBuilder,
     bool useSwitchIndicator = false,
+    bool invertSelectionColors = false,
+    Color? selectedOptionBackgroundColor,
+    Color Function(T value)? optionBackgroundColorBuilder,
     double optionScale = 1.0,
     Duration? delayedCloseDuration,
   }) {
@@ -590,6 +638,12 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                           subtitle: subtitleBuilder?.call(values[index]),
                           icon: iconBuilder?.call(values[index]),
                           useSwitchIndicator: useSwitchIndicator,
+                          invertSelectionColors: invertSelectionColors,
+                          selectedOptionBackgroundColor:
+                              selectedOptionBackgroundColor,
+                          optionBackgroundColor: optionBackgroundColorBuilder?.call(
+                            values[index],
+                          ),
                           sizeScale: optionScale,
                           onTap: () => handleSelection(values[index]),
                         ),
@@ -636,6 +690,14 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       values: AppThemePreference.values,
       titleBuilder: (preference) => _themePreferenceLabel(l10n, preference),
       iconBuilder: (preference) => preference.icon,
+      optionBackgroundColorBuilder: (preference) {
+        switch (preference) {
+          case AppThemePreference.light:
+            return Colors.white;
+          case AppThemePreference.dark:
+            return _darkThemeOptionColor;
+        }
+      },
     );
 
     if (!mounted || selection == null) {
@@ -647,6 +709,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
 
   Future<void> _showSplitTunnelModeSheet() async {
     final l10n = AppLocalizations.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final selection = await _showSelectionSheet<SplitTunnelMode>(
       title: l10n.tunnelMode,
       selected: _splitTunnelMode,
@@ -655,6 +718,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       subtitleBuilder: (mode) =>
           _localizedSplitTunnelModeDescription(l10n, mode),
       useSwitchIndicator: true,
+      selectedOptionBackgroundColor: isDark ? Colors.white : null,
     );
 
     if (!mounted || selection == null || selection == _splitTunnelMode) {
@@ -679,6 +743,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
 
   Future<void> _showDomainModeSheet() async {
     final l10n = AppLocalizations.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final selection = await _showSelectionSheet<SplitTunnelDomainMode>(
       title: l10n.domainMode,
       selected: _domainMode,
@@ -687,6 +752,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       subtitleBuilder: (mode) =>
           _localizedSplitTunnelDomainModeDescription(l10n, mode),
       useSwitchIndicator: true,
+      selectedOptionBackgroundColor: isDark ? Colors.white : null,
     );
 
     if (!mounted || selection == null || selection == _domainMode) {
@@ -710,6 +776,10 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     String? subtitle,
     IconData? icon,
     bool useSwitchIndicator = false,
+    bool invertSelectionColors = false,
+    Color? selectedOptionBackgroundColor,
+    Color? optionBackgroundColor,
+    bool? forceLightSwitchOutline,
     double sizeScale = 1.0,
     required VoidCallback onTap,
   }) {
@@ -717,16 +787,74 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     final isDark = theme.brightness == Brightness.dark;
     final isSelected = value == selected;
     final borderRadius = _settingsBlockRadius;
-    final backgroundColor = isSelected
-        ? Colors.black
-        : (isDark ? const Color(0xFF141414) : Colors.white);
-    final borderColor = isSelected
-        ? Colors.black
-        : theme.dividerColor.withValues(alpha: isDark ? 0.28 : 0.14);
-    final titleColor = isSelected ? Colors.white : theme.colorScheme.onSurface;
-    final subtitleColor = isSelected
-        ? Colors.white.withValues(alpha: 0.76)
-        : theme.colorScheme.onSurface.withValues(alpha: 0.62);
+    final resolvedOptionBackgroundColor = optionBackgroundColor ??
+        (isSelected ? selectedOptionBackgroundColor : null);
+    final hasCustomSurfaceColor = resolvedOptionBackgroundColor != null;
+    final backgroundColor = resolvedOptionBackgroundColor ??
+      (invertSelectionColors
+          ? (isSelected ? Colors.white : Colors.black)
+          : (isSelected
+              ? Colors.black
+              : (isDark ? const Color(0xFF141414) : Colors.white)));
+    final isLightSurface =
+      ThemeData.estimateBrightnessForColor(backgroundColor) ==
+      Brightness.light;
+    final showLightSurfaceShadow =
+      hasCustomSurfaceColor && isLightSurface && !isDark;
+    final matchesDarkSectionBorder =
+      hasCustomSurfaceColor && !isLightSurface && isDark;
+    final sectionBorderColor = theme.dividerColor.withValues(
+      alpha: isDark ? 0.14 : 0.08,
+    );
+    final foregroundColor = isLightSurface
+      ? Colors.black
+      : Colors.white;
+    final borderColor = matchesDarkSectionBorder
+      ? sectionBorderColor
+      : hasCustomSurfaceColor
+          ? (isSelected
+              ? foregroundColor
+              : foregroundColor.withValues(alpha: isLightSurface ? 0.20 : 0.14))
+      : (invertSelectionColors
+          ? Colors.black
+          : (isSelected
+              ? Colors.black
+              : theme.dividerColor.withValues(alpha: isDark ? 0.28 : 0.14)));
+    final titleColor = hasCustomSurfaceColor || invertSelectionColors
+      ? foregroundColor
+      : (isSelected ? Colors.white : theme.colorScheme.onSurface);
+    final subtitleColor = hasCustomSurfaceColor || invertSelectionColors
+      ? foregroundColor.withValues(alpha: isLightSurface ? 0.68 : 0.76)
+      : (isSelected
+          ? Colors.white.withValues(alpha: 0.76)
+          : theme.colorScheme.onSurface.withValues(alpha: 0.62));
+    final iconBadgeBackgroundColor = hasCustomSurfaceColor || invertSelectionColors
+      ? (isLightSurface
+          ? Colors.black
+          : Colors.white.withValues(alpha: 0.14))
+      : null;
+    final iconBadgeColor = hasCustomSurfaceColor || invertSelectionColors
+      ? Colors.white
+      : null;
+    final indicatorActiveColor = hasCustomSurfaceColor || invertSelectionColors
+      ? (isLightSurface ? Colors.black : Colors.white)
+      : null;
+    final indicatorBorderColor = hasCustomSurfaceColor || invertSelectionColors
+      ? foregroundColor.withValues(alpha: 0.36)
+      : null;
+    final indicatorCheckColor = hasCustomSurfaceColor || invertSelectionColors
+      ? (isLightSurface ? Colors.white : Colors.black)
+      : null;
+    final boxShadow = showLightSurfaceShadow
+      ? const [
+          BoxShadow(
+            color: Color.fromRGBO(0, 0, 0, 0.20),
+            blurRadius: 8,
+            spreadRadius: 0,
+            offset: Offset(0, 2),
+          ),
+        ]
+      : null;
     final titleStyle =
         (theme.textTheme.titleMedium ?? const TextStyle(fontSize: 16)).copyWith(
           color: titleColor,
@@ -750,14 +878,17 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(color: borderColor),
+            border: showLightSurfaceShadow ? null : Border.all(color: borderColor),
+            boxShadow: boxShadow,
           ),
           child: Row(
             children: [
               if (icon != null) ...[
                 _buildIconBadge(
                   icon: icon,
-                  accent: isSelected,
+                  accent: isSelected && !invertSelectionColors && !hasCustomSurfaceColor,
+                  backgroundColor: iconBadgeBackgroundColor,
+                  iconColor: iconBadgeColor,
                   sizeScale: sizeScale,
                 ),
                 SizedBox(width: 14 * sizeScale),
@@ -779,6 +910,9 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                   ? _buildSelectionSwitch(
                       selected: isSelected,
                       accent: isSelected,
+                      forceLightOutline:
+                          forceLightSwitchOutline ??
+                          (hasCustomSurfaceColor && isSelected && isLightSurface),
                       onChanged: (enabled) {
                         if (enabled) {
                           onTap();
@@ -787,7 +921,10 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                     )
                   : _buildSelectionIndicator(
                       selected: isSelected,
-                      accent: isSelected,
+                      accent: isSelected && !invertSelectionColors && !hasCustomSurfaceColor,
+                      activeColor: indicatorActiveColor,
+                      inactiveBorderColor: indicatorBorderColor,
+                      checkColor: indicatorCheckColor,
                       sizeScale: sizeScale,
                     ),
             ],
@@ -822,15 +959,20 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   Widget _buildSelectionIndicator({
     required bool selected,
     bool accent = false,
+    Color? activeColor,
+    Color? inactiveBorderColor,
+    Color? checkColor,
     double sizeScale = 1.0,
   }) {
-    final borderColor = accent
-        ? Colors.white.withValues(alpha: selected ? 1 : 0.36)
-        : Theme.of(context).dividerColor.withValues(alpha: 0.24);
+    final resolvedActiveColor = activeColor ?? (accent ? Colors.white : Colors.black);
+    final borderColor = inactiveBorderColor ??
+        (accent
+            ? Colors.white.withValues(alpha: selected ? 1 : 0.36)
+            : Theme.of(context).dividerColor.withValues(alpha: 0.24));
     final backgroundColor = !selected
         ? Colors.transparent
-        : (accent ? Colors.white : Colors.black);
-    final checkColor = accent ? Colors.black : Colors.white;
+        : resolvedActiveColor;
+    final resolvedCheckColor = checkColor ?? (accent ? Colors.black : Colors.white);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
@@ -840,7 +982,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
         shape: BoxShape.circle,
         color: backgroundColor,
         border: Border.all(
-          color: selected ? backgroundColor : borderColor,
+          color: selected ? resolvedActiveColor : borderColor,
           width: 2 * sizeScale,
         ),
       ),
@@ -848,7 +990,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
           ? Icon(
               Icons.check_rounded,
               size: 18 * sizeScale,
-              color: checkColor,
+              color: resolvedCheckColor,
             )
           : null,
     );
@@ -860,6 +1002,12 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     required ValueChanged<bool> onChanged,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final outlineColor = forceLightOutline
+        ? Colors.black
+        : null;
+    final outlineWidth = forceLightOutline
+        ? 1.5
+        : null;
 
     return Switch(
       value: selected,
@@ -875,12 +1023,12 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       inactiveTrackColor: isDark
           ? Colors.white.withValues(alpha: 0.22)
           : Colors.black.withValues(alpha: 0.18),
-      trackOutlineColor: !isDark && forceLightOutline
-          ? const WidgetStatePropertyAll<Color>(Colors.black)
-          : null,
-      trackOutlineWidth: !isDark && forceLightOutline
-          ? const WidgetStatePropertyAll<double>(1.5)
-          : null,
+        trackOutlineColor: outlineColor == null
+          ? null
+          : WidgetStatePropertyAll<Color>(outlineColor),
+        trackOutlineWidth: outlineWidth == null
+          ? null
+          : WidgetStatePropertyAll<double>(outlineWidth),
     );
   }
 
@@ -890,6 +1038,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     String? subtitle,
     required VoidCallback onTap,
     bool accent = false,
+    bool showChevron = true,
     Color? iconBadgeBackgroundColor,
     Color? iconBadgeColor,
   }) {
@@ -938,11 +1087,13 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: accent ? Colors.white : theme.colorScheme.onSurface,
-              ),
+              if (showChevron) ...[
+                const SizedBox(width: 12),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: accent ? Colors.white : theme.colorScheme.onSurface,
+                ),
+              ],
             ],
           ),
         ),
@@ -989,61 +1140,46 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     );
   }
 
-  String _appBadgeLabel(InstalledApp app) {
-    final source = app.label.trim().isNotEmpty
-        ? app.label.trim()
-        : app.packageName;
-    for (final rune in source.runes) {
-      final code = rune;
-      final isDigit = code >= 0x30 && code <= 0x39;
-      final isLatin =
-          (code >= 0x41 && code <= 0x5A) || (code >= 0x61 && code <= 0x7A);
-      final isCyrillic = code >= 0x0400 && code <= 0x04FF;
-      if (isDigit || isLatin || isCyrillic) {
-        return String.fromCharCode(code).toUpperCase();
-      }
-    }
-    return '?';
-  }
-
   Widget _buildAppTile(InstalledApp app, {VoidCallback? onToggle}) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final selected = _selectedPackages.contains(app.packageName);
     final handleToggle =
         onToggle ?? () => _togglePackageSelection(app.packageName);
-    final tileColor = theme.brightness == Brightness.dark
-        ? const Color(0xFF141414)
-        : Colors.transparent;
+    final tileColor = isDark ? const Color(0xFF141414) : Colors.white;
+    final borderRadius = BorderRadius.circular(_settingsBlockRadius);
+    final borderColor = theme.dividerColor.withValues(alpha: 0.14);
 
-    return Material(
-      color: tileColor,
-      borderRadius: BorderRadius.circular(_settingsBlockRadius),
-      child: InkWell(
-        onTap: handleToggle,
-        borderRadius: BorderRadius.circular(_settingsBlockRadius),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    return Container(
+      decoration: BoxDecoration(
+        color: tileColor,
+        borderRadius: borderRadius,
+        border: isDark ? Border.all(color: borderColor) : null,
+        boxShadow: isDark
+            ? null
+            : const [
+                BoxShadow(
+                  color: Color.fromRGBO(0, 0, 0, 0.20),
+                  blurRadius: 8,
+                  spreadRadius: 0,
+                  offset: Offset(0, 2),
+                ),
+              ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: borderRadius,
+        child: InkWell(
+          onTap: handleToggle,
+          borderRadius: borderRadius,
+          child: Container(
+          constraints: const BoxConstraints(minHeight: _inputRowHeight),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(_settingsBlockRadius),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  _appBadgeLabel(app),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
               Expanded(
                 child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
@@ -1054,7 +1190,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     Text(
                       app.packageName,
                       maxLines: 1,
@@ -1083,59 +1219,66 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
           ),
         ),
       ),
+      ),
     );
   }
 
-  Widget _buildDomainTile(String domain, {VoidCallback? onRemove}) {
+  Widget _buildDomainTile(String domain) {
     final theme = Theme.of(context);
-    final tileColor = theme.brightness == Brightness.dark
-        ? const Color(0xFF141414)
-        : Colors.transparent;
+    final isDark = theme.brightness == Brightness.dark;
+    final tileColor = isDark ? const Color(0xFF141414) : Colors.white;
     final borderRadius = BorderRadius.circular(_settingsBlockRadius);
 
-    return Material(
-      color: tileColor,
-      borderRadius: borderRadius,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-        child: Row(
-          children: [
-            Container(
-              width: 35,
-              height: 35,
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(_settingsBlockRadius),
-              ),
-              alignment: Alignment.center,
-              child: const Icon(
-                Icons.language_rounded,
-                color: Colors.white,
-                size: 18,
-              ),
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Text(
-                domain,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
+    return Container(
+      decoration: BoxDecoration(
+        color: tileColor,
+        borderRadius: borderRadius,
+        boxShadow: isDark
+            ? null
+            : const [
+                BoxShadow(
+                  color: Color.fromRGBO(0, 0, 0, 0.20),
+                  blurRadius: 8,
+                  spreadRadius: 0,
+                  offset: Offset(0, 2),
+                ),
+              ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: borderRadius,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: _inputRowHeight),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                ),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.language_rounded,
+                  color: Colors.white,
+                  size: 20,
                 ),
               ),
-            ),
-            const SizedBox(width: 10),
-            IconButton(
-              onPressed: onRemove,
-              icon: const Icon(Icons.close_rounded),
-              color: theme.colorScheme.onSurface,
-              iconSize: 20,
-              visualDensity: VisualDensity.compact,
-              constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
-              tooltip: MaterialLocalizations.of(context).deleteButtonTooltip,
-            ),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  domain,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1166,116 +1309,160 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       );
     }
 
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        final theme = Theme.of(sheetContext);
-        final isDark = theme.brightness == Brightness.dark;
-        final fieldBackgroundColor = isDark ? Colors.white : Colors.black;
-        final fieldForegroundColor = isDark ? Colors.black : Colors.white;
-        final fieldHintColor = fieldForegroundColor.withValues(alpha: 0.62);
-        final bottomInset = MediaQuery.viewInsetsOf(sheetContext).bottom;
+    const reorderDelay = Duration(milliseconds: 220);
+    final orderedSelectedPackages = Set<String>.from(_selectedPackages);
+    final reorderTimers = <String, Timer>{};
+    var sheetIsActive = true;
 
-        return StatefulBuilder(
-          builder: (context, modalSetState) {
-            final query = _appSearchController.text.trim().toLowerCase();
-            final filteredApps = _installedApps.where((app) {
-              final label = app.label.toLowerCase();
-              final packageName = app.packageName.toLowerCase();
-              return query.isEmpty ||
-                  label.contains(query) ||
-                  packageName.contains(query);
-            }).toList();
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) {
+          final theme = Theme.of(sheetContext);
+          final isDark = theme.brightness == Brightness.dark;
+          final fieldBackgroundColor = isDark ? Colors.white : Colors.black;
+          final fieldForegroundColor = isDark ? Colors.black : Colors.white;
+          final fieldHintColor = fieldForegroundColor.withValues(alpha: 0.62);
+          final bottomInset = MediaQuery.viewInsetsOf(sheetContext).bottom;
 
-            return SafeArea(
-              child: FractionallySizedBox(
-                heightFactor: 0.82,
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(20, 8, 20, bottomInset + 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        l10n.selectApps,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _appSearchController,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: fieldForegroundColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        cursorColor: fieldForegroundColor,
-                        onChanged: (value) {
-                          _appSearchQuery = value;
-                          modalSetState(() {});
-                        },
-                        decoration: InputDecoration(
-                          hintText: l10n.searchApps,
-                          hintStyle: theme.textTheme.bodyMedium?.copyWith(
-                            color: fieldHintColor,
-                          ),
-                          prefixIcon: Icon(
-                            Icons.search_rounded,
-                            color: fieldForegroundColor,
-                          ),
-                          filled: true,
-                          fillColor: fieldBackgroundColor,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(_settingsBlockRadius),
-                            borderSide: BorderSide.none,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(_settingsBlockRadius),
-                            borderSide: BorderSide.none,
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(_settingsBlockRadius),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Expanded(
-                        child: filteredApps.isEmpty
-                            ? Center(
-                                child: _buildEmptyState(
-                                  icon: Icons.apps_rounded,
-                                  title: l10n.appsNotFound,
+          return StatefulBuilder(
+            builder: (context, modalSetState) {
+              void handleAppToggle(String packageName) {
+                final shouldBeSelected = !_selectedPackages.contains(packageName);
+                _togglePackageSelection(packageName);
+                modalSetState(() {});
+
+                reorderTimers.remove(packageName)?.cancel();
+                reorderTimers[packageName] = Timer(reorderDelay, () {
+                  reorderTimers.remove(packageName);
+                  if (shouldBeSelected) {
+                    orderedSelectedPackages.add(packageName);
+                  } else {
+                    orderedSelectedPackages.remove(packageName);
+                  }
+                  if (sheetIsActive) {
+                    modalSetState(() {});
+                  }
+                });
+              }
+
+              final query = _appSearchController.text.trim().toLowerCase();
+              final filteredApps = _installedApps.where((app) {
+                final label = app.label.toLowerCase();
+                final packageName = app.packageName.toLowerCase();
+                return query.isEmpty ||
+                    label.contains(query) ||
+                    packageName.contains(query);
+              }).toList();
+              final orderedApps = [
+                ...filteredApps.where(
+                  (app) => orderedSelectedPackages.contains(app.packageName),
+                ),
+                ...filteredApps.where(
+                  (app) => !orderedSelectedPackages.contains(app.packageName),
+                ),
+              ];
+
+              return SafeArea(
+                child: FractionallySizedBox(
+                  heightFactor: 0.82,
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 8, bottom: bottomInset + 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                l10n.selectApps,
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w700,
                                 ),
-                              )
-                            : ListView.separated(
-                                itemCount: filteredApps.length,
-                                separatorBuilder: (context, index) =>
-                                    const SizedBox(height: 12),
-                                itemBuilder: (context, index) {
-                                  final app = filteredApps[index];
-                                  return _buildAppTile(
-                                    app,
-                                    onToggle: () {
-                                      _togglePackageSelection(
-                                        app.packageName,
-                                      );
-                                      modalSetState(() {});
-                                    },
-                                  );
-                                },
                               ),
-                      ),
-                    ],
+                              const SizedBox(height: 16),
+                              TextField(
+                                controller: _appSearchController,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: fieldForegroundColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                cursorColor: fieldForegroundColor,
+                                onChanged: (value) {
+                                  _appSearchQuery = value;
+                                  modalSetState(() {});
+                                },
+                                decoration: InputDecoration(
+                                  hintText: l10n.searchApps,
+                                  hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                                    color: fieldHintColor,
+                                  ),
+                                  prefixIcon: Icon(
+                                    Icons.search_rounded,
+                                    color: fieldForegroundColor,
+                                  ),
+                                  filled: true,
+                                  fillColor: fieldBackgroundColor,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 0),
+                        Expanded(
+                          child: orderedApps.isEmpty
+                              ? Center(
+                                  child: _buildEmptyState(
+                                    icon: Icons.apps_rounded,
+                                    title: l10n.appsNotFound,
+                                  ),
+                                )
+                              : ListView.separated(
+                                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                                  itemCount: orderedApps.length,
+                                  separatorBuilder: (context, index) =>
+                                      const SizedBox(height: _pickerListSpacing),
+                                  itemBuilder: (context, index) {
+                                    final app = orderedApps[index];
+                                    return _buildAppTile(
+                                      app,
+                                      onToggle: () => handleAppToggle(app.packageName),
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
-        );
-      },
-    );
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      sheetIsActive = false;
+      for (final timer in reorderTimers.values) {
+        timer.cancel();
+      }
+      reorderTimers.clear();
+    }
   }
 
   Future<void> _showDomainsPickerSheet() async {
@@ -1340,73 +1527,98 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
 
             return SafeArea(
               child: Padding(
-                padding: EdgeInsets.fromLTRB(20, 8, 20, bottomInset + 20),
+                padding: EdgeInsets.only(top: 8, bottom: bottomInset + 20),
                 child: SizedBox(
                   height: MediaQuery.sizeOf(sheetContext).height * 0.78,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        title,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _domainInputController,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: fieldForegroundColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        cursorColor: fieldForegroundColor,
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => addDomains(),
-                        decoration: InputDecoration(
-                          hintText: l10n.addDomainHint,
-                          hintStyle: theme.textTheme.bodyMedium?.copyWith(
-                            color: fieldHintColor,
-                          ),
-                          prefixIcon: Icon(
-                            Icons.language_rounded,
-                            color: fieldForegroundColor,
-                          ),
-                          suffixIcon: IconButton(
-                            style: IconButton.styleFrom(
-                              backgroundColor: addButtonBackgroundColor,
-                              foregroundColor: addButtonForegroundColor,
-                              padding: EdgeInsets.zero,
-                              minimumSize: const Size(40, 40),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                  _settingsBlockRadius,
-                                ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              title,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                            onPressed: addDomains,
-                            icon: Icon(
-                              Icons.add_rounded,
-                              color: addButtonForegroundColor,
+                            const SizedBox(height: 16),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Expanded(
+                                  child: SizedBox(
+                                    height: _inputRowHeight - 2,
+                                    child: TextField(
+                                      controller: _domainInputController,
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: fieldForegroundColor,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      cursorColor: fieldForegroundColor,
+                                      textInputAction: TextInputAction.done,
+                                      onSubmitted: (_) => addDomains(),
+                                      decoration: InputDecoration(
+                                        hintText: l10n.addDomainHint,
+                                        hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                                          color: fieldHintColor,
+                                        ),
+                                        prefixIcon: Icon(
+                                          Icons.language_rounded,
+                                          color: fieldForegroundColor,
+                                        ),
+                                        filled: true,
+                                        fillColor: fieldBackgroundColor,
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                          borderSide: BorderSide.none,
+                                        ),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                          borderSide: BorderSide.none,
+                                        ),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                          borderSide: BorderSide.none,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Transform.translate(
+                                  offset: const Offset(0, -1),
+                                  child: SizedBox(
+                                    width: _inputRowHeight - 2,
+                                    height: _inputRowHeight - 2,
+                                    child: Material(
+                                      color: addButtonBackgroundColor,
+                                      borderRadius: BorderRadius.circular(
+                                        _settingsBlockRadius,
+                                      ),
+                                      child: InkWell(
+                                        onTap: addDomains,
+                                        borderRadius: BorderRadius.circular(
+                                          _settingsBlockRadius,
+                                        ),
+                                        child: Center(
+                                          child: Icon(
+                                            Icons.add_rounded,
+                                            color: addButtonForegroundColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          filled: true,
-                          fillColor: fieldBackgroundColor,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(_settingsBlockRadius),
-                            borderSide: BorderSide.none,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(_settingsBlockRadius),
-                            borderSide: BorderSide.none,
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(_settingsBlockRadius),
-                            borderSide: BorderSide.none,
-                          ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 0),
                       Expanded(
                         child: _domainList.isEmpty
                             ? Center(
@@ -1416,14 +1628,39 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                                 ),
                               )
                             : ListView.separated(
+                                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
                                 itemCount: _domainList.length,
                                 separatorBuilder: (context, index) =>
-                                    const SizedBox(height: 12),
+                                    const SizedBox(height: _pickerListSpacing),
                                 itemBuilder: (context, index) {
                                   final domain = _domainList[index];
-                                  return _buildDomainTile(
-                                    domain,
-                                    onRemove: () => removeDomain(domain),
+                                  return Dismissible(
+                                    key: ValueKey(domain),
+                                    direction: DismissDirection.endToStart,
+                                    onDismissed: (_) => removeDomain(domain),
+                                    background: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.transparent,
+                                        borderRadius: BorderRadius.circular(
+                                          _settingsBlockRadius,
+                                        ),
+                                      ),
+                                      alignment: Alignment.centerRight,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 20,
+                                      ),
+                                      child: Text(
+                                        l10n.deleteAction,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium
+                                            ?.copyWith(
+                                              color: const Color(0xFFB45050),
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                    ),
+                                    child: _buildDomainTile(domain),
                                   );
                                 },
                               ),
@@ -1666,10 +1903,27 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     final l10n = AppLocalizations.of(context);
     final languageService = Provider.of<LanguageService>(context);
     final themeService = Provider.of<ThemeService>(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final showAppsSection = _splitTunnelMode != SplitTunnelMode.all;
     final showDomainsSection = _domainMode != SplitTunnelDomainMode.all;
     final showReconnectBanner = _showReconnectBanner && widget.isVpnConnected();
+    final notificationsActionTooltip = defaultTargetPlatform != TargetPlatform.android
+      ? '${l10n.notificationsLabel}: ${l10n.notificationsPermissionUnavailable}'
+      : _notificationsEnabled == true
+      ? '${l10n.notificationsLabel}: ${l10n.notificationsPermissionAllowed}'
+      : _notificationsEnabled == false
+      ? '${l10n.notificationsLabel}: ${l10n.notificationsPermissionDenied}'
+      : '${l10n.notificationsLabel}: ${l10n.notificationsPermissionChecking}';
+    final notificationsActionIcon = _notificationsEnabled == false
+      ? Icons.notifications_off_outlined
+      : _notificationsEnabled == true
+      ? Icons.notifications_active_outlined
+      : Icons.notifications_none_outlined;
+    final notificationsActionColor = _notificationsEnabled == false
+      ? theme.colorScheme.error
+      : null;
+    final showAppBarNotice = _floatingNoticeText != null;
 
     if (_isLoadingPrefs) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -1677,7 +1931,36 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     return ScaffoldMessenger(
       key: _scaffoldMessengerKey,
       child: Scaffold(
-        appBar: AppBar(title: Text(l10n.settingsTitle)),
+        appBar: AppBar(
+          automaticallyImplyLeading: !showAppBarNotice,
+          title: showAppBarNotice ? null : Text(l10n.settingsTitle),
+          actions: showAppBarNotice
+              ? const []
+              : [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Tooltip(
+                      message: notificationsActionTooltip,
+                      child: IconButton(
+                        onPressed: _isUpdatingNotificationsPermission
+                            ? null
+                            : _handleNotificationsPermissionAction,
+                        icon: _isUpdatingNotificationsPermission
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Icon(
+                                notificationsActionIcon,
+                                color: notificationsActionColor,
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
+          flexibleSpace: _buildAppBarNoticeOverlay(),
+        ),
         body: SafeArea(
           top: false,
           child: AnimatedPadding(
@@ -1739,7 +2022,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                   _buildSectionTitle('VPN'),
                   const SizedBox(height: 12),
                   _buildSectionCard(
-                    color: isDark ? const Color(0xFF141414) : Colors.black,
+                    color: isDark ? null : Colors.black,
                     children: [
                       _buildSettingsTile(
                         icon: Icons.filter_alt_outlined,

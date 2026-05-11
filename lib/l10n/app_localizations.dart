@@ -31,6 +31,29 @@ class AppLocalizations {
   String get updateNow => _get('Обновить');
   String get later => _get('Позже');
   String get activeUntilLabel => _get('Активна до:');
+  String get subscriptionExpiringLessThan48Hours =>
+      _get('Подписка истекает менее чем через 48ч');
+  String get subscriptionExpiredNotification => _get('Подписка истекла');
+  String get notificationsLabel => _get('Уведомления');
+  String get notificationsPermissionAllowed => _get('Разрешены');
+  String get notificationsPermissionDenied => _get('Запрещены');
+  String get notificationsPermissionChecking => _get('Проверка...');
+  String get notificationsPermissionUnavailable => _get('Недоступно');
+  String get deleteAction => _get('Удалить');
+  String subscriptionExpiringLessThan48HoursForConfig(String configName) {
+    if (language == AppLanguage.ru) {
+      return 'Подписка $configName истекает менее чем через 48ч';
+    }
+    return 'Subscription $configName expires in less than 48h';
+  }
+
+  String subscriptionExpiredNotificationForConfig(String configName) {
+    if (language == AppLanguage.ru) {
+      return 'Подписка $configName истекла';
+    }
+    return 'Subscription $configName expired';
+  }
+
   String configUpdatedMessage(String configName) {
     if (language == AppLanguage.ru) {
       return '$configName обновлена';
@@ -285,6 +308,22 @@ class AppLocalizations {
         return 'Update';
       case 'Позже':
         return 'Later';
+      case 'Подписка истекает менее чем через 48ч':
+        return 'Subscription expires in less than 48h';
+      case 'Подписка истекла':
+        return 'Subscription expired';
+      case 'Уведомления':
+        return 'Notifications';
+      case 'Разрешены':
+        return 'Allowed';
+      case 'Запрещены':
+        return 'Blocked';
+      case 'Проверка...':
+        return 'Checking...';
+      case 'Недоступно':
+        return 'Unavailable';
+      case 'Удалить':
+        return 'Delete';
       case 'Импортированные конфигурации':
         return 'Imported configurations';
       case 'Конфигурации еще не импортированы':
