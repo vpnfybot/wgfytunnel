@@ -31,8 +31,6 @@ class AppLocalizations {
   String get updateNow => _get('Обновить');
   String get later => _get('Позже');
   String get activeUntilLabel => _get('Активна до:');
-  String get subscriptionExpiringLessThan48Hours =>
-      _get('Подписка истекает менее чем через 48ч');
   String get subscriptionExpiredNotification => _get('Подписка истекла');
   String get notificationsLabel => _get('Уведомления');
   String get notificationsPermissionAllowed => _get('Разрешены');
@@ -40,11 +38,32 @@ class AppLocalizations {
   String get notificationsPermissionChecking => _get('Проверка...');
   String get notificationsPermissionUnavailable => _get('Недоступно');
   String get deleteAction => _get('Удалить');
-  String subscriptionExpiringLessThan48HoursForConfig(String configName) {
+  String subscriptionExpiringHoursForConfig(
+    String configName,
+    int hoursBeforeExpiry,
+  ) {
+    final hoursText = _subscriptionExpiryHoursText(hoursBeforeExpiry);
     if (language == AppLanguage.ru) {
-      return 'Подписка $configName истекает менее чем через 48ч';
+      return 'Подписка $configName истекает через $hoursText';
     }
-    return 'Subscription $configName expires in less than 48h';
+    return 'Subscription $configName expires in $hoursText';
+  }
+
+  String _subscriptionExpiryHoursText(int hoursBeforeExpiry) {
+    if (language == AppLanguage.ru) {
+      switch (hoursBeforeExpiry) {
+        case 24:
+          return '24 часа❗️';
+        case 48:
+          return '48 часов❗️';
+        case 72:
+          return '72 часа❗️';
+        default:
+          return '$hoursBeforeExpiry ч❗️';
+      }
+    }
+
+    return '$hoursBeforeExpiry hours❗️';
   }
 
   String subscriptionExpiredNotificationForConfig(String configName) {
@@ -142,6 +161,15 @@ class AppLocalizations {
   String get tunnelStopped => _get('Туннель остановлен');
   String get languageLabel => _get('Язык');
   String get theme => _get('Тема');
+    String get logsLabel => language == AppLanguage.ru ? 'Логи' : 'Logs';
+    String get logsSubtitle =>
+      language == AppLanguage.ru ? 'Ошибки приложения' : 'Application errors';
+    String get noLogsLabel =>
+      language == AppLanguage.ru ? 'Логи пока пусты' : 'No logs yet';
+    String get clearLogsLabel =>
+      language == AppLanguage.ru ? 'Очистить логи' : 'Clear logs';
+    String get failedLoadLogsLabel =>
+      language == AppLanguage.ru ? 'Не удалось загрузить логи' : 'Failed to load logs';
   String get licensesLabel => _get('Лицензии');
   String get systemTheme => _get('Системная');
   String get lightTheme => _get('Светлая');

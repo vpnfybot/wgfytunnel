@@ -34,6 +34,7 @@ object TunnelNotificationSupport {
         rxBytes: Long,
         txBytes: Long,
         deleteIntent: PendingIntent? = null,
+        disconnectIntent: PendingIntent? = null,
     ): Notification {
         val openAppIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -69,6 +70,10 @@ object TunnelNotificationSupport {
         }
 
         deleteIntent?.let(builder::setDeleteIntent)
+        disconnectIntent?.let {
+            @Suppress("DEPRECATION")
+            builder.addAction(0, "Отключиться", it)
+        }
 
         val notification = builder.build()
         notification.contentView?.let { compactView ->

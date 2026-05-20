@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'app_log_service.dart';
 import 'app_update_service.dart';
 import 'endpoint_country_service.dart';
 import 'imported_configs_prefs.dart';
@@ -430,24 +432,60 @@ class InstalledApp {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isAndroid) {
-    try {
-      await SubscriptionService.initializeAndroidAutomation();
-    } catch (_) {}
-  }
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  final languageService = LanguageService();
-  final themeService = ThemeService();
-  await themeService.initialize();
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider.value(value: languageService),
-        ChangeNotifierProvider.value(value: themeService),
-      ],
-      child: const MyApp(),
-    ),
-  );
+  await AppLogService.initialize();
+
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    unawaited(AppLogService.logFlutterError(details));
+  };
+
+  PlatformDispatcher.instance.onError = (error, stackTrace) {
+    unawaited(
+      AppLogService.logError(
+        'Unhandled platform dispatcher error',
+        error: error,
+        stackTrace: stackTrace,
+        origin: 'platform_dispatcher',
+      ),
+    );
+    return true;
+  };
+
+  await runZonedGuarded(() async {
+    if (Platform.isAndroid) {
+      try {
+        await SubscriptionService.initializeAndroidAutomation();
+      } catch (error, stackTrace) {
+        await AppLogService.logError(
+          'Failed to initialize Android automation',
+          error: error,
+          stackTrace: stackTrace,
+          origin: 'startup',
+        );
+      }
+    }
+
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    final languageService = LanguageService();
+    final themeService = ThemeService();
+    await themeService.initialize();
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: languageService),
+          ChangeNotifierProvider.value(value: themeService),
+        ],
+        child: const MyApp(),
+      ),
+    );
+  }, (error, stackTrace) async {
+    await AppLogService.logError(
+      'Unhandled zone error',
+      error: error,
+      stackTrace: stackTrace,
+      origin: 'zone',
+    );
+  });
 }
 
 class MyApp extends StatelessWidget {
@@ -606,7 +644,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Timer? _subscriptionsRefreshTimer;
   final ScrollController _configsListScrollController = ScrollController();
   bool _wasConfigListReorderedForActiveTunnel = false;
-  String? _configPathBeingUpdated;
+  Set<String> _configPathsBeingUpdated = <String>{};
 
   @override
   void initState() {
@@ -619,7 +657,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     _refreshTunnelStatus();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_checkForAppUpdateOnLaunch());
-      unawaited(_requestSubscriptionNotificationPermission());
       unawaited(_refreshSubscriptions(force: true));
     });
   }
@@ -657,14 +694,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _requestSubscriptionNotificationPermission() async {
-    if (!Platform.isAndroid) {
-      return;
-    }
-
-    await SubscriptionService.requestNotificationPermission();
-  }
-
   Future<void> _refreshSubscriptions({bool force = false}) async {
     final shouldRefresh =
         force || await SubscriptionService.shouldRefreshSubscriptions();
@@ -677,10 +706,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       setState(() {
         _configActiveUntilByPath = activeUntilByPath;
       });
-    }
-
-    if (Platform.isAndroid) {
-      await SubscriptionService.notifyExpiredSubscriptionsIfNeeded();
     }
   }
 
@@ -1753,7 +1778,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _sendSelectedConfigUpdate(File file) async {
-    if (_configPathBeingUpdated != null) {
+    if (_configPathsBeingUpdated.contains(file.path)) {
       return;
     }
 
@@ -1762,7 +1787,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
     if (mounted) {
       setState(() {
-        _configPathBeingUpdated = file.path;
+        _configPathsBeingUpdated = <String>{
+          ..._configPathsBeingUpdated,
+          file.path,
+        };
       });
     }
 
@@ -1786,9 +1814,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         });
       }
 
-      if (Platform.isAndroid) {
-        await SubscriptionService.notifyExpiredSubscriptionsIfNeeded();
-      }
       _showFloatingNotice(l10n.configUpdatedMessage(configName));
     } catch (_) {
       _showFloatingNotice(
@@ -1798,7 +1823,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     } finally {
       if (mounted) {
         setState(() {
-          _configPathBeingUpdated = null;
+          _configPathsBeingUpdated = <String>{
+            ..._configPathsBeingUpdated,
+          }..remove(file.path);
         });
       }
     }
@@ -2222,6 +2249,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       return;
     }
 
+    if (isError && text.trim().isNotEmpty) {
+      unawaited(AppLogService.logError(text, origin: 'ui'));
+    }
+
     _floatingNoticeTimer?.cancel();
     setState(() {
       _floatingNoticeText = text;
@@ -2513,6 +2544,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             final showActiveUntil =
                 activeUntilText != null &&
                 activeUntilText.trim().isNotEmpty;
+            final isSubscriptionExpired =
+                showActiveUntil &&
+              SubscriptionService.isSubscriptionExpired(activeUntilText);
             final isDark = Theme.of(context).brightness == Brightness.dark;
             final itemForegroundColor =
               isDark ? Colors.white : colorScheme.onSurface;
@@ -2520,7 +2554,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               isDark ? Colors.white : colorScheme.onSurfaceVariant;
             final itemContentOpacity =
               isDark && isInactiveWhileConnected ? 0.5 : 1.0;
-            final isUpdatingThisConfig = _configPathBeingUpdated == file.path;
+            final isUpdatingThisConfig = _configPathsBeingUpdated.contains(
+              file.path,
+            );
             final cardBackgroundColor = isDark
               ? Colors.transparent
               : (isInactiveWhileConnected
@@ -2743,7 +2779,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                             height: 32,
                                             width: 32,
                                             child: FilledButton(
-                                              onPressed: _configPathBeingUpdated != null
+                                                onPressed: isUpdatingThisConfig
                                                   ? null
                                                   : () => _sendSelectedConfigUpdate(file),
                                               style: FilledButton.styleFrom(
@@ -2794,13 +2830,19 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                         child: Align(
                           alignment: Alignment.center,
                           child: Text(
-                            '${l10n.activeUntilLabel} $activeUntilText',
+                            isSubscriptionExpired
+                                ? l10n.subscriptionExpiredNotification
+                                : '${l10n.activeUntilLabel} $activeUntilText',
                             textAlign: TextAlign.center,
                             style: textTheme.bodySmall?.copyWith(
-                              color: isDark
-                                  ? Colors.white.withValues(alpha: 0.78)
-                                  : colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w600,
+                              color: isSubscriptionExpired
+                                  ? const Color.fromRGBO(180, 80, 80, 1)
+                                  : (isDark
+                                      ? Colors.white.withValues(alpha: 0.78)
+                                      : colorScheme.onSurfaceVariant),
+                              fontWeight: isSubscriptionExpired
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
                             ),
                           ),
                         ),

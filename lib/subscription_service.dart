@@ -6,7 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'imported_configs_prefs.dart';
-import 'l10n/app_localizations.dart';
 import 'wg_config_parser.dart';
 
 const String subscriptionBackgroundTaskUniqueName =
@@ -33,11 +32,6 @@ class SubscriptionService {
   static const Duration refreshInterval = Duration(hours: 2);
   static const Duration backgroundCheckInterval = Duration(minutes: 20);
   static const Duration _subscriptionRequestTimeout = Duration(seconds: 20);
-  static const List<int> _expiryNotificationThresholdHours = <int>[
-    24,
-    48,
-    72,
-  ];
 
   static const String _activeUntilByPathKey =
       'subscription_active_until_by_path';
@@ -50,7 +44,6 @@ class SubscriptionService {
   static const String _notificationChannelName = 'Subscription expiration';
   static const String _notificationChannelDescription =
       'Subscription expiration alerts';
-  static const String _appLanguageKey = 'app_language';
 
   static final HttpClient _subinfoHttpClient = HttpClient()
     ..connectionTimeout = _subscriptionRequestTimeout;
@@ -65,7 +58,6 @@ class SubscriptionService {
       return;
     }
 
-    await _ensureNotificationsInitialized();
     if (!_backgroundWorkInitialized) {
       await Workmanager().initialize(subscriptionBackgroundDispatcher);
       _backgroundWorkInitialized = true;
@@ -279,69 +271,6 @@ class SubscriptionService {
     return entry;
   }
 
-  static int? _notificationCheckpointHours(String activeUntil) {
-    final expiresAt = _parseSubscriptionDate(activeUntil);
-    if (expiresAt == null) {
-      return null;
-    }
-
-    final expiryMoment = expiresAt.add(const Duration(days: 1));
-    final remaining = expiryMoment.difference(DateTime.now());
-    if (remaining <= Duration.zero) {
-      return 0;
-    }
-
-    for (final hours in _expiryNotificationThresholdHours) {
-      if (remaining <= Duration(hours: hours)) {
-        return hours;
-      }
-    }
-
-    return null;
-  }
-
-  static Future<AppLanguage> _loadNotificationLanguage() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedLanguage = prefs.getString(_appLanguageKey);
-    return savedLanguage == 'en' ? AppLanguage.en : AppLanguage.ru;
-  }
-
-  static String _configDisplayName(String path) {
-    return path.split(Platform.pathSeparator).last;
-  }
-
-  static String _notificationTitleForHours(
-    AppLanguage language,
-    String configPath,
-    int hoursBeforeExpiry,
-  ) {
-    final l10n = AppLocalizations(language);
-    final configName = _configDisplayName(configPath);
-    if (hoursBeforeExpiry == 0) {
-      return l10n.subscriptionExpiredNotificationForConfig(configName);
-    }
-    return l10n.subscriptionExpiringLessThan48HoursForConfig(configName);
-  }
-
-  static String? _notificationBodyForHours(int hoursBeforeExpiry) {
-    if (hoursBeforeExpiry == 0) {
-      return null;
-    }
-    return null;
-  }
-
-  static const NotificationDetails _subscriptionNotificationDetails =
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          _notificationChannelId,
-          _notificationChannelName,
-          channelDescription: _notificationChannelDescription,
-          icon: 'ic_stat_vpnfy',
-          importance: Importance.max,
-          priority: Priority.high,
-        ),
-      );
-
   static Future<({String? activeUntil, Object? error})>
   updateSubscriptionForPath(String configPath) async {
     final file = File(configPath);
@@ -451,66 +380,13 @@ class SubscriptionService {
       return;
     }
 
-    await _ensureNotificationsInitialized();
     if (await shouldRefreshSubscriptions()) {
       await refreshAllSubscriptions();
     }
-    await notifyExpiredSubscriptionsIfNeeded();
   }
 
   static Future<int> notifyExpiredSubscriptionsIfNeeded() async {
-    if (!Platform.isAndroid) {
-      return 0;
-    }
-
-    await _ensureNotificationsInitialized();
-    final importedPaths = (await ImportedConfigsPrefs.loadPaths()).toSet();
-    final activeUntilByPath = await loadStoredActiveUntilByPath();
-    final notifiedPaths = await _loadExpiredNotifiedPaths();
-    final notificationLanguage = await _loadNotificationLanguage();
-    var shownNotificationsCount = 0;
-
-    notifiedPaths.removeWhere(
-      (entry) => !_notificationEntryMatchesImportedPaths(entry, importedPaths),
-    );
-
-    for (final entry in activeUntilByPath.entries) {
-      if (!importedPaths.contains(entry.key)) {
-        continue;
-      }
-
-      final notificationHours = _notificationCheckpointHours(entry.value);
-      if (notificationHours == null) {
-        continue;
-      }
-
-      final checkpointKey = _notificationCheckpointKey(
-        entry.key,
-        entry.value,
-        notificationHours,
-      );
-      final hasLegacyExpiredNotification =
-          notificationHours == 0 && notifiedPaths.contains(entry.key);
-      if (hasLegacyExpiredNotification || notifiedPaths.contains(checkpointKey)) {
-        continue;
-      }
-
-      await _notificationsPlugin.show(
-        _notificationIdForPath(entry.key),
-        _notificationTitleForHours(
-          notificationLanguage,
-          entry.key,
-          notificationHours,
-        ),
-        _notificationBodyForHours(notificationHours),
-        _subscriptionNotificationDetails,
-      );
-      notifiedPaths.add(checkpointKey);
-      shownNotificationsCount += 1;
-    }
-
-    await _saveExpiredNotifiedPaths(notifiedPaths);
-    return shownNotificationsCount;
+    return 0;
   }
 
   static bool isSubscriptionExpired(String activeUntil) {
@@ -633,19 +509,6 @@ class SubscriptionService {
     }
 
     return (activeUntil: null, error: lastError);
-  }
-
-  static int _notificationIdForPath(String path) {
-    var hash = 0;
-    for (final codeUnit in path.codeUnits) {
-      hash = 0x1fffffff & (hash + codeUnit);
-      hash = 0x1fffffff & (hash + ((0x0007ffff & hash) << 10));
-      hash ^= hash >> 6;
-    }
-    hash = 0x1fffffff & (hash + ((0x03ffffff & hash) << 3));
-    hash ^= hash >> 11;
-    hash = 0x1fffffff & (hash + ((0x00003fff & hash) << 15));
-    return hash & 0x7fffffff;
   }
 
   static String? _firstNonEmptyValue(

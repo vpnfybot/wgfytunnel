@@ -321,6 +321,8 @@ class SingBoxVpnService : VpnService() {
         }
         tunInterface = null
 
+        QuickTileVpnController.requestTileRefresh(applicationContext)
+
         if (!keepForeground) {
             val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager?.cancel(NOTIFICATION_ID)
@@ -349,6 +351,7 @@ class SingBoxVpnService : VpnService() {
             rxBytes = rxBytes,
             txBytes = txBytes,
             deleteIntent = notificationDeleteIntent(),
+            disconnectIntent = notificationDisconnectIntent(),
         )
     }
 
@@ -371,6 +374,18 @@ class SingBoxVpnService : VpnService() {
         return PendingIntent.getService(
             this,
             NOTIFICATION_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun notificationDisconnectIntent(): PendingIntent {
+        val intent = Intent(this, SingBoxVpnService::class.java).apply {
+            action = ACTION_STOP
+        }
+        return PendingIntent.getService(
+            this,
+            NOTIFICATION_ID + 1,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

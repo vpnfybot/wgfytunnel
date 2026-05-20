@@ -28,6 +28,11 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
+	private data class PreparedWireGuardConnection(
+		val config: Config,
+		val effectiveConfig: String,
+	)
+
 	companion object {
 		private const val vpnPermissionRequestCode = 1001
 		private const val notificationPermissionRequestCode = 1002
@@ -49,6 +54,7 @@ class MainActivity : FlutterActivity() {
 	private var pendingConfig: Config? = null
 	private var pendingStatusMessage: String? = null
 	private var pendingWgConfig: String? = null
+	private var pendingLastConnectionSnapshot: LastVpnConnectionSnapshot? = null
 	private var pendingSplitMode: SplitTunnelMode? = null
 	private var pendingSelectedPackages: Set<String>? = null
 	private var pendingDomainMode: SplitTunnelDomainMode? = null
@@ -127,12 +133,19 @@ class MainActivity : FlutterActivity() {
 						val selectedPackages = call.argument<List<String>>("selectedPackages")?.toSet().orEmpty()
 						val domainMode = call.argument<String>("domainMode") ?: SplitTunnelDomainMode.ALL.wireValue
 						val domainList = call.argument<List<String>>("domainList").orEmpty()
+						val useDomainRouting =
+							call.argument<Boolean>("useDomainRouting") == true ||
+								domainMode != SplitTunnelDomainMode.ALL.wireValue
 						if (filePath.isNullOrBlank()) {
 							result.error("INVALID_ARGS", "filePath is required", null)
 							return@setMethodCallHandler
 						}
 
-						connectWireGuard(filePath, splitMode, selectedPackages, domainMode, domainList, result)
+						if (useDomainRouting) {
+							connectSingBox(filePath, splitMode, selectedPackages, domainMode, domainList, result)
+						} else {
+							connectWireGuard(filePath, splitMode, selectedPackages, domainMode, domainList, result)
+						}
 					}
 
 					"disconnectWireGuard" -> {
@@ -160,12 +173,14 @@ class MainActivity : FlutterActivity() {
 		val result = pendingResult ?: return
 		val config = pendingConfig
 		val wgConfig = pendingWgConfig
+		val lastConnectionSnapshot = pendingLastConnectionSnapshot
 		val statusMessage = pendingStatusMessage
 		val splitMode = pendingSplitMode ?: SplitTunnelMode.ALL
 		val selectedPackages = pendingSelectedPackages ?: emptySet()
 		pendingResult = null
 		pendingConfig = null
 		pendingWgConfig = null
+		pendingLastConnectionSnapshot = null
 		pendingStatusMessage = null
 		pendingSplitMode = null
 		pendingSelectedPackages = null
@@ -178,9 +193,16 @@ class MainActivity : FlutterActivity() {
 		}
 
 		if (wgConfig != null) {
-			startSingBox(wgConfig, splitMode, selectedPackages, result, statusMessage ?: "VPN sing-box подключен")
+			startSingBox(
+				wgConfig,
+				splitMode,
+				selectedPackages,
+				result,
+				statusMessage ?: "VPN sing-box подключен",
+				lastConnectionSnapshot,
+			)
 		} else if (config != null) {
-			connectWithConfig(config, result, statusMessage)
+			connectWithConfig(config, result, statusMessage, lastConnectionSnapshot)
 		} else {
 			result.error("VPN_NO_CONFIG", "Нет конфигурации для подключения", null)
 		}
@@ -226,7 +248,7 @@ class MainActivity : FlutterActivity() {
 		}
 
 		executor.execute {
-			val config = try {
+			val preparedConnection = try {
 				parseConfig(filePath, splitMode, selectedPackages, domainMode, domainList)
 			} catch (e: IOException) {
 				runOnUiThread {
@@ -240,22 +262,38 @@ class MainActivity : FlutterActivity() {
 				return@execute
 			}
 
+			val lastConnectionSnapshot = LastVpnConnectionSnapshot.wireGuard(
+				configName = configDisplayName(filePath),
+				payload = preparedConnection.effectiveConfig,
+			)
+
 			runOnUiThread {
 				val permissionIntent = VpnService.prepare(this)
 				if (permissionIntent != null) {
 					pendingResult = result
-					pendingConfig = config
+					pendingConfig = preparedConnection.config
+					pendingLastConnectionSnapshot = lastConnectionSnapshot
 					pendingStatusMessage = statusMessage
 					startActivityForResult(permissionIntent, vpnPermissionRequestCode)
 					return@runOnUiThread
 				}
 
-				connectWithConfig(config, result, statusMessage)
+				connectWithConfig(
+					preparedConnection.config,
+					result,
+					statusMessage,
+					lastConnectionSnapshot,
+				)
 			}
 		}
 	}
 
-	private fun connectWithConfig(config: Config, result: MethodChannel.Result, statusMessage: String?) {
+	private fun connectWithConfig(
+		config: Config,
+		result: MethodChannel.Result,
+		statusMessage: String?,
+		lastConnectionSnapshot: LastVpnConnectionSnapshot?,
+	) {
 		executor.execute {
 			try {
 				backend.setState(tunnel, Tunnel.State.UP, config)
@@ -263,6 +301,10 @@ class MainActivity : FlutterActivity() {
 					val connectedAtElapsedRealtime = SystemClock.elapsedRealtime()
 					WireGuardRuntime.connectedAtElapsedRealtime = connectedAtElapsedRealtime
 					WireGuardNotificationService.start(applicationContext, connectedAtElapsedRealtime)
+					lastConnectionSnapshot?.let {
+						LastVpnConnectionStore.save(applicationContext, it)
+					}
+					QuickTileVpnController.requestTileRefresh(applicationContext)
 					requestNotificationPermissionIfNeeded()
 					result.success(statusPayload(statusMessage ?: "VPN подключен", connectedOverride = true))
 				}
@@ -312,6 +354,7 @@ class MainActivity : FlutterActivity() {
 				runOnUiThread {
 					WireGuardRuntime.connectedAtElapsedRealtime = null
 					WireGuardNotificationService.stop(applicationContext)
+					QuickTileVpnController.requestTileRefresh(applicationContext)
 					result.success(statusPayload("VPN отключен", connectedOverride = false))
 				}
 			} catch (e: Exception) {
@@ -366,6 +409,13 @@ class MainActivity : FlutterActivity() {
 			domainMode = domainMode,
 			domainList = domainList,
 		)
+		val configJson = singBoxConfig.toString()
+		val lastConnectionSnapshot = LastVpnConnectionSnapshot.singBox(
+			configName = configDisplayName(filePath),
+			payload = configJson,
+			splitMode = splitMode,
+			selectedPackages = selectedPackages,
+		)
 
 		android.util.Log.d("SingBox", "Generated config: ${singBoxConfig.toString(2)}")
 
@@ -379,7 +429,8 @@ class MainActivity : FlutterActivity() {
 		val permissionIntent = VpnService.prepare(this)
 		if (permissionIntent != null) {
 			pendingResult = result
-			pendingWgConfig = singBoxConfig.toString()
+			pendingWgConfig = configJson
+			pendingLastConnectionSnapshot = lastConnectionSnapshot
 			pendingStatusMessage = statusMessage
 			pendingSplitMode = splitMode
 			pendingSelectedPackages = selectedPackages
@@ -389,7 +440,14 @@ class MainActivity : FlutterActivity() {
 			return
 		}
 
-		startSingBox(singBoxConfig.toString(), splitMode, selectedPackages, result, statusMessage)
+		startSingBox(
+			configJson,
+			splitMode,
+			selectedPackages,
+			result,
+			statusMessage,
+			lastConnectionSnapshot,
+		)
 	}
 
 	private fun startSingBox(
@@ -398,6 +456,7 @@ class MainActivity : FlutterActivity() {
 		selectedPackages: Set<String>,
 		result: MethodChannel.Result,
 		statusMessage: String,
+		lastConnectionSnapshot: LastVpnConnectionSnapshot?,
 	) {
 		executor.execute {
 			val success = singBoxManager.start(configJson, splitMode, selectedPackages)
@@ -406,6 +465,10 @@ class MainActivity : FlutterActivity() {
 				WireGuardNotificationService.stop(applicationContext)
 				useSingBox = true
 				runOnUiThread {
+					lastConnectionSnapshot?.let {
+						LastVpnConnectionStore.save(applicationContext, it)
+					}
+					QuickTileVpnController.requestTileRefresh(applicationContext)
 					requestNotificationPermissionIfNeeded()
 					result.success(statusPayload(statusMessage, connectedOverride = true))
 				}
@@ -428,6 +491,7 @@ class MainActivity : FlutterActivity() {
 			WireGuardRuntime.connectedAtElapsedRealtime = null
 			WireGuardNotificationService.stop(applicationContext)
 			runOnUiThread {
+				QuickTileVpnController.requestTileRefresh(applicationContext)
 				result.success(statusPayload("VPN sing-box отключен", connectedOverride = false))
 			}
 		}
@@ -439,7 +503,7 @@ class MainActivity : FlutterActivity() {
 		selectedPackages: Set<String>,
 		domainMode: SplitTunnelDomainMode,
 		domainList: List<String>,
-	): Config {
+	): PreparedWireGuardConnection {
 		val source = File(filePath)
 		if (!source.exists()) {
 			throw IOException("Файл не найден")
@@ -459,7 +523,17 @@ class MainActivity : FlutterActivity() {
 		val effectiveConfig = applySplitTunnelOverrides(rawConfig, splitMode, selectedPackages, domainMode, resolvedIps)
 		android.util.Log.d("WG_SPLIT", "Effective config AllowedIPs section: ${effectiveConfig.lines().filter { it.trim().startsWith("AllowedIPs", ignoreCase = true) }}")
 		effectiveConfig.byteInputStream().use { stream ->
-			return Config.parse(stream)
+			return PreparedWireGuardConnection(
+				config = Config.parse(stream),
+				effectiveConfig = effectiveConfig,
+			)
+		}
+	}
+
+	private fun configDisplayName(filePath: String): String {
+		val file = File(filePath)
+		return file.nameWithoutExtension.ifBlank {
+			file.name.ifBlank { "VPN" }
 		}
 	}
 

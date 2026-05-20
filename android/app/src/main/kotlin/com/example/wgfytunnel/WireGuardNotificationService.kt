@@ -18,6 +18,7 @@ class WireGuardNotificationService : Service() {
     companion object {
         private const val ACTION_START = "com.example.wgfytunnel.action.START_WIREGUARD_NOTIFICATION"
         private const val ACTION_STOP = "com.example.wgfytunnel.action.STOP_WIREGUARD_NOTIFICATION"
+        private const val ACTION_DISCONNECT = "com.example.wgfytunnel.action.DISCONNECT_WIREGUARD"
         private const val ACTION_RESTORE = "com.example.wgfytunnel.action.RESTORE_WIREGUARD_NOTIFICATION"
         private const val EXTRA_CONNECTED_AT = "connected_at"
         private const val NOTIFICATION_ID = 1003
@@ -61,13 +62,33 @@ class WireGuardNotificationService : Service() {
             ACTION_STOP -> {
                 WireGuardRuntime.connectedAtElapsedRealtime = null
                 stopUpdates()
+                QuickTileVpnController.requestTileRefresh(applicationContext)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
 
+            ACTION_DISCONNECT -> {
+                executor.execute {
+                    runCatching {
+                        WireGuardRuntime.backend.setState(
+                            WireGuardRuntime.tunnel,
+                            Tunnel.State.DOWN,
+                            null,
+                        )
+                    }
+                    WireGuardRuntime.connectedAtElapsedRealtime = null
+                    stopUpdates()
+                    QuickTileVpnController.requestTileRefresh(applicationContext)
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+                return START_NOT_STICKY
+            }
+
             ACTION_RESTORE -> {
                 if (WireGuardRuntime.connectedAtElapsedRealtime == null) {
+                    QuickTileVpnController.requestTileRefresh(applicationContext)
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                     return START_NOT_STICKY
@@ -108,6 +129,7 @@ class WireGuardNotificationService : Service() {
             rxBytes = 0L,
             txBytes = 0L,
             deleteIntent = notificationDeleteIntent(),
+            disconnectIntent = notificationDisconnectIntent(),
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -147,6 +169,7 @@ class WireGuardNotificationService : Service() {
 
         if (tunnelState != Tunnel.State.UP) {
             WireGuardRuntime.connectedAtElapsedRealtime = null
+            QuickTileVpnController.requestTileRefresh(applicationContext)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
@@ -166,7 +189,20 @@ class WireGuardNotificationService : Service() {
                 rxBytes = stats?.totalRx() ?: 0L,
                 txBytes = stats?.totalTx() ?: 0L,
                 deleteIntent = notificationDeleteIntent(),
+                disconnectIntent = notificationDisconnectIntent(),
             ),
+        )
+    }
+
+    private fun notificationDisconnectIntent(): PendingIntent {
+        val intent = Intent(this, WireGuardNotificationService::class.java).apply {
+            action = ACTION_DISCONNECT
+        }
+        return PendingIntent.getService(
+            this,
+            NOTIFICATION_ID + 1,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }
 

@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
+import 'app_log_service.dart';
+import 'app_logs_page.dart';
 import 'l10n/app_localizations.dart';
 import 'l10n/language_service.dart';
 import 'main.dart';
@@ -336,6 +338,10 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       return;
     }
 
+    if (isError && text.trim().isNotEmpty) {
+      unawaited(AppLogService.logError(text, origin: 'settings_ui'));
+    }
+
     _floatingNoticeTimer?.cancel();
     setState(() {
       _floatingNoticeText = text;
@@ -471,6 +477,12 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     _showMessage(
       AppLocalizations.of(context).reconnectToApplyChangedSettings,
       icon: Icons.sync_problem_rounded,
+    );
+  }
+
+  Future<void> _showLogsPage() {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const AppLogsPage()),
     );
   }
 
@@ -2064,6 +2076,13 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                   const SizedBox(height: 16),
                   _buildSectionCard(
                     children: [
+                      _buildSettingsTile(
+                        icon: Icons.subject_rounded,
+                        title: l10n.logsLabel,
+                        subtitle: l10n.logsSubtitle,
+                        onTap: _showLogsPage,
+                      ),
+                      _buildSectionDivider(),
                       _buildSettingsTile(
                         icon: Icons.article_outlined,
                         title: l10n.licensesLabel,
