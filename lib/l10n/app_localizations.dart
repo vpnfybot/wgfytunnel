@@ -95,6 +95,7 @@ class AppLocalizations {
   String get noFileSelected => _get('Файл не выбран');
   String get settingsTitle => _get('Настройки');
   String get generalSection => _get('Основные');
+  String get otherSection => language == AppLanguage.ru ? 'Другое' : 'Other';
   String get splitTunneling => _get('Раздельное туннелирование');
   String get apps => _get('Приложения');
   String get sites => _get('Домены');

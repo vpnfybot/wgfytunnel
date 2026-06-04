@@ -29,7 +29,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   static const double _settingsBlockRadius = 12.0;
   static const double _pickerListSpacing = 4.0;
   static const double _inputRowHeight = 56.0;
-  static const Color _darkThemeOptionColor = Color(0xFF141414);
   static const MethodChannel _wireGuardChannel = MethodChannel(
     'wgfytunnel/wireguard',
   );
@@ -405,7 +404,9 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
             );
           },
           child: !isVisible
-              ? const SizedBox.shrink(key: ValueKey<String>('hidden-settings-notice-overlay'))
+              ? const SizedBox.shrink(
+                  key: ValueKey<String>('hidden-settings-notice-overlay'),
+                )
               : SizedBox.expand(
                   key: ValueKey<String>(
                     'visible-settings-notice-overlay-${_floatingNoticeText!}-$_floatingNoticeIsError-$_floatingNoticeIcon',
@@ -430,16 +431,19 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                               children: [
                                 Expanded(
                                   child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
                                     child: Text(
                                       _floatingNoticeText ?? '',
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                       textAlign: TextAlign.center,
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: foregroundColor,
-                                        fontWeight: FontWeight.w700,
-                                      ),
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: foregroundColor,
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                     ),
                                   ),
                                 ),
@@ -481,9 +485,9 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   }
 
   Future<void> _showLogsPage() {
-    return Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => const AppLogsPage()),
-    );
+    return Navigator.of(
+      context,
+    ).push<void>(MaterialPageRoute<void>(builder: (_) => const AppLogsPage()));
   }
 
   String _localizedSplitTunnelModeLabel(
@@ -542,6 +546,15 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     }
   }
 
+  String _languageLabel(AppLocalizations l10n, AppLanguage language) {
+    switch (language) {
+      case AppLanguage.en:
+        return l10n.english;
+      case AppLanguage.ru:
+        return l10n.russian;
+    }
+  }
+
   String _themePreferenceLabel(
     AppLocalizations l10n,
     AppThemePreference preference,
@@ -551,15 +564,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
         return l10n.lightTheme;
       case AppThemePreference.dark:
         return l10n.darkTheme;
-    }
-  }
-
-  String _languageLabel(AppLocalizations l10n, AppLanguage language) {
-    switch (language) {
-      case AppLanguage.en:
-        return l10n.english;
-      case AppLanguage.ru:
-        return l10n.russian;
     }
   }
 
@@ -587,9 +591,14 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     String Function(T value)? subtitleBuilder,
     IconData Function(T value)? iconBuilder,
     bool useSwitchIndicator = false,
+    bool showSelectionIndicator = true,
     bool invertSelectionColors = false,
     Color? selectedOptionBackgroundColor,
     Color Function(T value)? optionBackgroundColorBuilder,
+    BoxBorder? Function(T value, bool isSelected, ThemeData theme)?
+    optionBorderBuilder,
+    List<BoxShadow>? Function(T value, bool isSelected, ThemeData theme)?
+    selectionIndicatorShadowBuilder,
     double optionScale = 1.0,
     Duration? delayedCloseDuration,
   }) {
@@ -650,16 +659,29 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                           subtitle: subtitleBuilder?.call(values[index]),
                           icon: iconBuilder?.call(values[index]),
                           useSwitchIndicator: useSwitchIndicator,
+                          showSelectionIndicator: showSelectionIndicator,
                           invertSelectionColors: invertSelectionColors,
                           selectedOptionBackgroundColor:
                               selectedOptionBackgroundColor,
-                          optionBackgroundColor: optionBackgroundColorBuilder?.call(
+                          optionBackgroundColor: optionBackgroundColorBuilder
+                              ?.call(values[index]),
+                          hasBorderOverride: optionBorderBuilder != null,
+                          borderOverride: optionBorderBuilder?.call(
                             values[index],
+                            values[index] == currentSelection,
+                            theme,
                           ),
+                          selectionIndicatorShadow:
+                              selectionIndicatorShadowBuilder?.call(
+                                values[index],
+                                values[index] == currentSelection,
+                                theme,
+                              ),
                           sizeScale: optionScale,
                           onTap: () => handleSelection(values[index]),
                         ),
-                        if (index != values.length - 1) const SizedBox(height: 12),
+                        if (index != values.length - 1)
+                          const SizedBox(height: 12),
                       ],
                     ],
                   ),
@@ -675,15 +697,17 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   Future<void> _showLanguageSheet() async {
     final l10n = AppLocalizations.of(context);
     final languageService = context.read<LanguageService>();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final selection = await _showSelectionSheet<AppLanguage>(
       title: l10n.languageLabel,
       selected: languageService.language,
       values: AppLanguage.values,
       titleBuilder: (language) => _languageLabel(l10n, language),
-      iconBuilder: (language) => language == AppLanguage.ru
-          ? Icons.language_rounded
-          : Icons.translate_rounded,
-      optionScale: 0.94,
+      selectedOptionBackgroundColor: isDark ? Colors.white : null,
+      optionBorderBuilder: isDark
+          ? (_, isSelected, theme) =>
+                isSelected ? null : Border.all(color: const Color(0xFF282828))
+          : null,
     );
 
     if (!mounted || selection == null) {
@@ -696,20 +720,32 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   Future<void> _showThemeSheet() async {
     final l10n = AppLocalizations.of(context);
     final themeService = context.read<ThemeService>();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final selection = await _showSelectionSheet<AppThemePreference>(
       title: l10n.theme,
       selected: themeService.preference,
       values: AppThemePreference.values,
       titleBuilder: (preference) => _themePreferenceLabel(l10n, preference),
-      iconBuilder: (preference) => preference.icon,
-      optionBackgroundColorBuilder: (preference) {
-        switch (preference) {
-          case AppThemePreference.light:
-            return Colors.white;
-          case AppThemePreference.dark:
-            return _darkThemeOptionColor;
-        }
-      },
+      selectedOptionBackgroundColor: isDark ? Colors.white : null,
+      optionBorderBuilder: isDark
+          ? (_, isSelected, theme) => isSelected
+                ? null
+                : Border.all(color: const Color(0xFF282828))
+          : (_, isSelected, theme) => isSelected
+                ? null
+                : Border.all(color: theme.dividerColor.withValues(alpha: 0.14)),
+      selectionIndicatorShadowBuilder: isDark
+          ? null
+          : (_, isSelected, theme) => isSelected
+                ? const [
+                    BoxShadow(
+                      color: Color.fromRGBO(0, 0, 0, 0.20),
+                      blurRadius: 8,
+                      spreadRadius: 0,
+                      offset: Offset(0, 2),
+                    ),
+                  ]
+                : null,
     );
 
     if (!mounted || selection == null) {
@@ -729,7 +765,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       titleBuilder: (mode) => _localizedSplitTunnelModeLabel(l10n, mode),
       subtitleBuilder: (mode) =>
           _localizedSplitTunnelModeDescription(l10n, mode),
-      useSwitchIndicator: true,
+      showSelectionIndicator: false,
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
     );
 
@@ -763,7 +799,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       titleBuilder: (mode) => _localizedSplitTunnelDomainModeLabel(l10n, mode),
       subtitleBuilder: (mode) =>
           _localizedSplitTunnelDomainModeDescription(l10n, mode),
-      useSwitchIndicator: true,
+      showSelectionIndicator: false,
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
     );
 
@@ -788,9 +824,13 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     String? subtitle,
     IconData? icon,
     bool useSwitchIndicator = false,
+    bool showSelectionIndicator = true,
     bool invertSelectionColors = false,
     Color? selectedOptionBackgroundColor,
     Color? optionBackgroundColor,
+    BoxBorder? borderOverride,
+    bool hasBorderOverride = false,
+    List<BoxShadow>? selectionIndicatorShadow,
     bool? forceLightSwitchOutline,
     double sizeScale = 1.0,
     required VoidCallback onTap,
@@ -799,74 +839,75 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     final isDark = theme.brightness == Brightness.dark;
     final isSelected = value == selected;
     final borderRadius = _settingsBlockRadius;
-    final resolvedOptionBackgroundColor = optionBackgroundColor ??
+    final resolvedOptionBackgroundColor =
+        optionBackgroundColor ??
         (isSelected ? selectedOptionBackgroundColor : null);
     final hasCustomSurfaceColor = resolvedOptionBackgroundColor != null;
-    final backgroundColor = resolvedOptionBackgroundColor ??
-      (invertSelectionColors
-          ? (isSelected ? Colors.white : Colors.black)
-          : (isSelected
-              ? Colors.black
-              : (isDark ? const Color(0xFF141414) : Colors.white)));
+    final backgroundColor =
+        resolvedOptionBackgroundColor ??
+        (invertSelectionColors
+            ? (isSelected ? Colors.white : Colors.black)
+            : (isSelected
+                  ? Colors.black
+                  : (isDark ? const Color(0xFF141414) : Colors.white)));
     final isLightSurface =
-      ThemeData.estimateBrightnessForColor(backgroundColor) ==
-      Brightness.light;
+        ThemeData.estimateBrightnessForColor(backgroundColor) ==
+        Brightness.light;
     final showLightSurfaceShadow =
-      hasCustomSurfaceColor && isLightSurface && !isDark;
+        hasCustomSurfaceColor && isLightSurface && !isDark;
     final matchesDarkSectionBorder =
-      hasCustomSurfaceColor && !isLightSurface && isDark;
+        hasCustomSurfaceColor && !isLightSurface && isDark;
     final sectionBorderColor = theme.dividerColor.withValues(
       alpha: isDark ? 0.14 : 0.08,
     );
-    final foregroundColor = isLightSurface
-      ? Colors.black
-      : Colors.white;
+    final foregroundColor = isLightSurface ? Colors.black : Colors.white;
     final borderColor = matchesDarkSectionBorder
-      ? sectionBorderColor
-      : hasCustomSurfaceColor
-          ? (isSelected
+        ? sectionBorderColor
+        : hasCustomSurfaceColor
+        ? (isSelected
               ? foregroundColor
               : foregroundColor.withValues(alpha: isLightSurface ? 0.20 : 0.14))
-      : (invertSelectionColors
-          ? Colors.black
-          : (isSelected
+        : (invertSelectionColors
               ? Colors.black
-              : theme.dividerColor.withValues(alpha: isDark ? 0.28 : 0.14)));
+              : (isSelected
+                    ? Colors.black
+                    : theme.dividerColor.withValues(
+                        alpha: isDark ? 0.28 : 0.14,
+                      )));
     final titleColor = hasCustomSurfaceColor || invertSelectionColors
-      ? foregroundColor
-      : (isSelected ? Colors.white : theme.colorScheme.onSurface);
+        ? foregroundColor
+        : (isSelected ? Colors.white : theme.colorScheme.onSurface);
     final subtitleColor = hasCustomSurfaceColor || invertSelectionColors
-      ? foregroundColor.withValues(alpha: isLightSurface ? 0.68 : 0.76)
-      : (isSelected
-          ? Colors.white.withValues(alpha: 0.76)
-          : theme.colorScheme.onSurface.withValues(alpha: 0.62));
-    final iconBadgeBackgroundColor = hasCustomSurfaceColor || invertSelectionColors
-      ? (isLightSurface
-          ? Colors.black
-          : Colors.white.withValues(alpha: 0.14))
-      : null;
+        ? foregroundColor.withValues(alpha: isLightSurface ? 0.68 : 0.76)
+        : (isSelected
+              ? Colors.white.withValues(alpha: 0.76)
+              : theme.colorScheme.onSurface.withValues(alpha: 0.62));
+    final iconBadgeBackgroundColor =
+        hasCustomSurfaceColor || invertSelectionColors
+        ? (isLightSurface ? Colors.black : Colors.white.withValues(alpha: 0.14))
+        : null;
     final iconBadgeColor = hasCustomSurfaceColor || invertSelectionColors
-      ? Colors.white
-      : null;
+        ? Colors.white
+        : null;
     final indicatorActiveColor = hasCustomSurfaceColor || invertSelectionColors
-      ? (isLightSurface ? Colors.black : Colors.white)
-      : null;
+        ? (isLightSurface ? Colors.black : Colors.white)
+        : null;
     final indicatorBorderColor = hasCustomSurfaceColor || invertSelectionColors
-      ? foregroundColor.withValues(alpha: 0.36)
-      : null;
+        ? foregroundColor.withValues(alpha: 0.36)
+        : null;
     final indicatorCheckColor = hasCustomSurfaceColor || invertSelectionColors
-      ? (isLightSurface ? Colors.white : Colors.black)
-      : null;
+        ? (isLightSurface ? Colors.white : Colors.black)
+        : null;
     final boxShadow = showLightSurfaceShadow
-      ? const [
-          BoxShadow(
-            color: Color.fromRGBO(0, 0, 0, 0.20),
-            blurRadius: 8,
-            spreadRadius: 0,
-            offset: Offset(0, 2),
-          ),
-        ]
-      : null;
+        ? const [
+            BoxShadow(
+              color: Color.fromRGBO(0, 0, 0, 0.20),
+              blurRadius: 8,
+              spreadRadius: 0,
+              offset: Offset(0, 2),
+            ),
+          ]
+        : null;
     final titleStyle =
         (theme.textTheme.titleMedium ?? const TextStyle(fontSize: 16)).copyWith(
           color: titleColor,
@@ -890,7 +931,11 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(borderRadius),
-            border: showLightSurfaceShadow ? null : Border.all(color: borderColor),
+            border: hasBorderOverride
+                ? borderOverride
+                : (showLightSurfaceShadow
+                      ? null
+                      : Border.all(color: borderColor)),
             boxShadow: boxShadow,
           ),
           child: Row(
@@ -898,7 +943,10 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
               if (icon != null) ...[
                 _buildIconBadge(
                   icon: icon,
-                  accent: isSelected && !invertSelectionColors && !hasCustomSurfaceColor,
+                  accent:
+                      isSelected &&
+                      !invertSelectionColors &&
+                      !hasCustomSurfaceColor,
                   backgroundColor: iconBadgeBackgroundColor,
                   iconColor: iconBadgeColor,
                   sizeScale: sizeScale,
@@ -917,34 +965,43 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                   ],
                 ),
               ),
-              SizedBox(width: 12 * sizeScale),
-              useSwitchIndicator
-                  ? _buildSelectionSwitch(
-                      selected: isSelected,
-                      accent: isSelected,
-                      forceLightOutline:
-                          forceLightSwitchOutline ??
-                          (hasCustomSurfaceColor && isSelected && isLightSurface),
-                      onChanged: (enabled) {
-                        if (enabled) {
-                          onTap();
-                        }
-                      },
-                    )
-                  : _buildSelectionIndicator(
-                      selected: isSelected,
-                      accent: isSelected && !invertSelectionColors && !hasCustomSurfaceColor,
-                      activeColor: indicatorActiveColor,
-                      inactiveBorderColor: indicatorBorderColor,
-                      checkColor: indicatorCheckColor,
-                      sizeScale: sizeScale,
-                    ),
+              if (showSelectionIndicator) ...[
+                SizedBox(width: 12 * sizeScale),
+                useSwitchIndicator
+                    ? _buildSelectionSwitch(
+                        selected: isSelected,
+                        accent: isSelected,
+                        forceLightOutline:
+                            forceLightSwitchOutline ??
+                            (hasCustomSurfaceColor &&
+                                isSelected &&
+                                isLightSurface),
+                        onChanged: (enabled) {
+                          if (enabled) {
+                            onTap();
+                          }
+                        },
+                      )
+                    : _buildSelectionIndicator(
+                        selected: isSelected,
+                        accent:
+                            isSelected &&
+                            !invertSelectionColors &&
+                            !hasCustomSurfaceColor,
+                        activeColor: indicatorActiveColor,
+                        inactiveBorderColor: indicatorBorderColor,
+                        checkColor: indicatorCheckColor,
+                        boxShadow: selectionIndicatorShadow,
+                        sizeScale: sizeScale,
+                      ),
+              ],
             ],
           ),
         ),
       ),
     );
   }
+
   Widget _buildIconBadge({
     required IconData icon,
     bool accent = false,
@@ -968,23 +1025,28 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       child: Icon(icon, color: resolvedIconColor, size: 22 * sizeScale),
     );
   }
+
   Widget _buildSelectionIndicator({
     required bool selected,
     bool accent = false,
     Color? activeColor,
     Color? inactiveBorderColor,
     Color? checkColor,
+    List<BoxShadow>? boxShadow,
     double sizeScale = 1.0,
   }) {
-    final resolvedActiveColor = activeColor ?? (accent ? Colors.white : Colors.black);
-    final borderColor = inactiveBorderColor ??
+    final resolvedActiveColor =
+        activeColor ?? (accent ? Colors.white : Colors.black);
+    final borderColor =
+        inactiveBorderColor ??
         (accent
             ? Colors.white.withValues(alpha: selected ? 1 : 0.36)
             : Theme.of(context).dividerColor.withValues(alpha: 0.24));
     final backgroundColor = !selected
         ? Colors.transparent
         : resolvedActiveColor;
-    final resolvedCheckColor = checkColor ?? (accent ? Colors.black : Colors.white);
+    final resolvedCheckColor =
+        checkColor ?? (accent ? Colors.black : Colors.white);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
@@ -993,6 +1055,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: backgroundColor,
+        boxShadow: selected ? boxShadow : null,
         border: Border.all(
           color: selected ? resolvedActiveColor : borderColor,
           width: 2 * sizeScale,
@@ -1007,6 +1070,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
           : null,
     );
   }
+
   Widget _buildSelectionSwitch({
     required bool selected,
     bool accent = false,
@@ -1014,12 +1078,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     required ValueChanged<bool> onChanged,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final outlineColor = forceLightOutline
-        ? Colors.black
-        : null;
-    final outlineWidth = forceLightOutline
-        ? 1.5
-        : null;
+    final outlineColor = forceLightOutline ? Colors.black : null;
+    final outlineWidth = forceLightOutline ? 1.5 : null;
 
     return Switch(
       value: selected,
@@ -1035,10 +1095,10 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       inactiveTrackColor: isDark
           ? Colors.white.withValues(alpha: 0.22)
           : Colors.black.withValues(alpha: 0.18),
-        trackOutlineColor: outlineColor == null
+      trackOutlineColor: outlineColor == null
           ? null
           : WidgetStatePropertyAll<Color>(outlineColor),
-        trackOutlineWidth: outlineWidth == null
+      trackOutlineWidth: outlineWidth == null
           ? null
           : WidgetStatePropertyAll<double>(outlineWidth),
     );
@@ -1185,52 +1245,52 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
           onTap: handleToggle,
           borderRadius: borderRadius,
           child: Container(
-          constraints: const BoxConstraints(minHeight: _inputRowHeight),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      app.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      app.packageName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.62,
+            constraints: const BoxConstraints(minHeight: _inputRowHeight),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        app.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 2),
+                      Text(
+                        app.packageName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.62,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              _buildSelectionSwitch(
-                selected: selected,
-                accent: selected,
-                forceLightOutline: true,
-                onChanged: (enabled) {
-                  if (enabled != selected) {
-                    handleToggle();
-                  }
-                },
-              ),
-            ],
+                const SizedBox(width: 12),
+                _buildSelectionSwitch(
+                  selected: selected,
+                  accent: selected,
+                  forceLightOutline: true,
+                  onChanged: (enabled) {
+                    if (enabled != selected) {
+                      handleToggle();
+                    }
+                  },
+                ),
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -1342,7 +1402,9 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
           return StatefulBuilder(
             builder: (context, modalSetState) {
               void handleAppToggle(String packageName) {
-                final shouldBeSelected = !_selectedPackages.contains(packageName);
+                final shouldBeSelected = !_selectedPackages.contains(
+                  packageName,
+                );
                 _togglePackageSelection(packageName);
                 modalSetState(() {});
 
@@ -1410,9 +1472,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                                 },
                                 decoration: InputDecoration(
                                   hintText: l10n.searchApps,
-                                  hintStyle: theme.textTheme.bodyMedium?.copyWith(
-                                    color: fieldHintColor,
-                                  ),
+                                  hintStyle: theme.textTheme.bodyMedium
+                                      ?.copyWith(color: fieldHintColor),
                                   prefixIcon: Icon(
                                     Icons.search_rounded,
                                     color: fieldForegroundColor,
@@ -1420,15 +1481,21 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                                   filled: true,
                                   fillColor: fieldBackgroundColor,
                                   border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                    borderRadius: BorderRadius.circular(
+                                      _settingsBlockRadius,
+                                    ),
                                     borderSide: BorderSide.none,
                                   ),
                                   enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                    borderRadius: BorderRadius.circular(
+                                      _settingsBlockRadius,
+                                    ),
                                     borderSide: BorderSide.none,
                                   ),
                                   focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                    borderRadius: BorderRadius.circular(
+                                      _settingsBlockRadius,
+                                    ),
                                     borderSide: BorderSide.none,
                                   ),
                                 ),
@@ -1446,15 +1513,23 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                                   ),
                                 )
                               : ListView.separated(
-                                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                                  padding: const EdgeInsets.fromLTRB(
+                                    20,
+                                    8,
+                                    20,
+                                    8,
+                                  ),
                                   itemCount: orderedApps.length,
                                   separatorBuilder: (context, index) =>
-                                      const SizedBox(height: _pickerListSpacing),
+                                      const SizedBox(
+                                        height: _pickerListSpacing,
+                                      ),
                                   itemBuilder: (context, index) {
                                     final app = orderedApps[index];
                                     return _buildAppTile(
                                       app,
-                                      onToggle: () => handleAppToggle(app.packageName),
+                                      onToggle: () =>
+                                          handleAppToggle(app.packageName),
                                     );
                                   },
                                 ),
@@ -1508,9 +1583,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
               final domains = raw
                   .split(RegExp(r'[,;\s]+'))
                   .map((domain) => domain.trim().toLowerCase())
-                  .where(
-                    (domain) => domain.isNotEmpty && domain.contains('.'),
-                  )
+                  .where((domain) => domain.isNotEmpty && domain.contains('.'))
                   .toList();
               if (domains.isEmpty) {
                 _showMessage(l10n.enterCorrectDomain, isError: true);
@@ -1565,18 +1638,18 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                                     height: _inputRowHeight - 2,
                                     child: TextField(
                                       controller: _domainInputController,
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: fieldForegroundColor,
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: fieldForegroundColor,
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                       cursorColor: fieldForegroundColor,
                                       textInputAction: TextInputAction.done,
                                       onSubmitted: (_) => addDomains(),
                                       decoration: InputDecoration(
                                         hintText: l10n.addDomainHint,
-                                        hintStyle: theme.textTheme.bodyMedium?.copyWith(
-                                          color: fieldHintColor,
-                                        ),
+                                        hintStyle: theme.textTheme.bodyMedium
+                                            ?.copyWith(color: fieldHintColor),
                                         prefixIcon: Icon(
                                           Icons.language_rounded,
                                           color: fieldForegroundColor,
@@ -1584,15 +1657,21 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                                         filled: true,
                                         fillColor: fieldBackgroundColor,
                                         border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                          borderRadius: BorderRadius.circular(
+                                            _settingsBlockRadius,
+                                          ),
                                           borderSide: BorderSide.none,
                                         ),
                                         enabledBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                          borderRadius: BorderRadius.circular(
+                                            _settingsBlockRadius,
+                                          ),
                                           borderSide: BorderSide.none,
                                         ),
                                         focusedBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(_settingsBlockRadius),
+                                          borderRadius: BorderRadius.circular(
+                                            _settingsBlockRadius,
+                                          ),
                                           borderSide: BorderSide.none,
                                         ),
                                       ),
@@ -1640,7 +1719,12 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                                 ),
                               )
                             : ListView.separated(
-                                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                                padding: const EdgeInsets.fromLTRB(
+                                  20,
+                                  8,
+                                  20,
+                                  8,
+                                ),
                                 itemCount: _domainList.length,
                                 separatorBuilder: (context, index) =>
                                     const SizedBox(height: _pickerListSpacing),
@@ -1772,10 +1856,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     );
   }
 
-  Widget _buildSectionCard({
-    required List<Widget> children,
-    Color? color,
-  }) {
+  Widget _buildSectionCard({required List<Widget> children, Color? color}) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final backgroundColor =
@@ -1920,21 +2001,22 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     final showAppsSection = _splitTunnelMode != SplitTunnelMode.all;
     final showDomainsSection = _domainMode != SplitTunnelDomainMode.all;
     final showReconnectBanner = _showReconnectBanner && widget.isVpnConnected();
-    final notificationsActionTooltip = defaultTargetPlatform != TargetPlatform.android
-      ? '${l10n.notificationsLabel}: ${l10n.notificationsPermissionUnavailable}'
-      : _notificationsEnabled == true
-      ? '${l10n.notificationsLabel}: ${l10n.notificationsPermissionAllowed}'
-      : _notificationsEnabled == false
-      ? '${l10n.notificationsLabel}: ${l10n.notificationsPermissionDenied}'
-      : '${l10n.notificationsLabel}: ${l10n.notificationsPermissionChecking}';
+    final notificationsActionTooltip =
+        defaultTargetPlatform != TargetPlatform.android
+        ? '${l10n.notificationsLabel}: ${l10n.notificationsPermissionUnavailable}'
+        : _notificationsEnabled == true
+        ? '${l10n.notificationsLabel}: ${l10n.notificationsPermissionAllowed}'
+        : _notificationsEnabled == false
+        ? '${l10n.notificationsLabel}: ${l10n.notificationsPermissionDenied}'
+        : '${l10n.notificationsLabel}: ${l10n.notificationsPermissionChecking}';
     final notificationsActionIcon = _notificationsEnabled == false
-      ? Icons.notifications_off_outlined
-      : _notificationsEnabled == true
-      ? Icons.notifications_active_outlined
-      : Icons.notifications_none_outlined;
+        ? Icons.notifications_off_outlined
+        : _notificationsEnabled == true
+        ? Icons.notifications_active_outlined
+        : Icons.notifications_none_outlined;
     final notificationsActionColor = _notificationsEnabled == false
-      ? theme.colorScheme.error
-      : null;
+        ? theme.colorScheme.error
+        : null;
     final showAppBarNotice = _floatingNoticeText != null;
 
     if (_isLoadingPrefs) {
@@ -1961,7 +2043,9 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : Icon(
                                 notificationsActionIcon,
@@ -2074,6 +2158,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                     _buildDomainsSection(),
                   ],
                   const SizedBox(height: 16),
+                  _buildSectionTitle(l10n.otherSection),
+                  const SizedBox(height: 12),
                   _buildSectionCard(
                     children: [
                       _buildSettingsTile(

@@ -27,9 +27,21 @@ import 'wg_config_parser.dart';
 const double _elementBorderRadius = 12.0;
 
 enum SplitTunnelMode {
-  all('all', 'Вся система через VPN', 'Через VPN будет идти трафик всей системы.'),
-  include('include', 'Только выбранные приложения', 'Через VPN будут идти только отмеченные приложения.'),
-  exclude('exclude', 'Все приложения кроме выбранных', 'Через VPN будет идти трафик всей системы, кроме отмеченных приложений.');
+  all(
+    'all',
+    'Вся система через VPN',
+    'Через VPN будет идти трафик всей системы.',
+  ),
+  include(
+    'include',
+    'Только выбранные приложения',
+    'Через VPN будут идти только отмеченные приложения.',
+  ),
+  exclude(
+    'exclude',
+    'Все приложения кроме выбранных',
+    'Через VPN будет идти трафик всей системы, кроме отмеченных приложений.',
+  );
 
   const SplitTunnelMode(this.wireValue, this.label, this.description);
 
@@ -326,7 +338,12 @@ class _ConfigEditorPageState extends State<_ConfigEditorPage> {
           _buildEditableRow(
             context,
             fieldKey,
-            _ensureEditableFieldController(sectionType, sectionIndex, fieldKey, ''),
+            _ensureEditableFieldController(
+              sectionType,
+              sectionIndex,
+              fieldKey,
+              '',
+            ),
           ),
         );
       }
@@ -334,7 +351,11 @@ class _ConfigEditorPageState extends State<_ConfigEditorPage> {
       previousSectionType = sectionType;
     }
 
-    appendSectionRows(widget.globalValues, sectionType: 'global', sectionIndex: 0);
+    appendSectionRows(
+      widget.globalValues,
+      sectionType: 'global',
+      sectionIndex: 0,
+    );
     for (var index = 0; index < widget.interfaces.length; index += 1) {
       appendSectionRows(
         widget.interfaces[index],
@@ -391,9 +412,7 @@ class _ConfigEditorPageState extends State<_ConfigEditorPage> {
                 const SizedBox(height: 8),
                 Text(
                   _saveErrorText!,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                  ),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ],
             ],
@@ -405,9 +424,21 @@ class _ConfigEditorPageState extends State<_ConfigEditorPage> {
 }
 
 enum SplitTunnelDomainMode {
-  all('all', 'Все домены через VPN', 'Весь трафик идет через VPN без доменных ограничений.'),
-  include('include', 'Только указанные домены', 'Через VPN идут только перечисленные домены (остальной трафик — напрямую).'),
-  exclude('exclude', 'Все домены кроме указанных', 'Через VPN идет весь трафик, кроме перечисленных доменов.');
+  all(
+    'all',
+    'Все домены через VPN',
+    'Весь трафик идет через VPN без доменных ограничений.',
+  ),
+  include(
+    'include',
+    'Только указанные домены',
+    'Через VPN идут только перечисленные домены (остальной трафик — напрямую).',
+  ),
+  exclude(
+    'exclude',
+    'Все домены кроме указанных',
+    'Через VPN идет весь трафик, кроме перечисленных доменов.',
+  );
 
   const SplitTunnelDomainMode(this.wireValue, this.label, this.description);
 
@@ -451,41 +482,44 @@ Future<void> main() async {
     return true;
   };
 
-  await runZonedGuarded(() async {
-    if (Platform.isAndroid) {
-      try {
-        await SubscriptionService.initializeAndroidAutomation();
-      } catch (error, stackTrace) {
-        await AppLogService.logError(
-          'Failed to initialize Android automation',
-          error: error,
-          stackTrace: stackTrace,
-          origin: 'startup',
-        );
+  await runZonedGuarded(
+    () async {
+      if (Platform.isAndroid) {
+        try {
+          await SubscriptionService.initializeAndroidAutomation();
+        } catch (error, stackTrace) {
+          await AppLogService.logError(
+            'Failed to initialize Android automation',
+            error: error,
+            stackTrace: stackTrace,
+            origin: 'startup',
+          );
+        }
       }
-    }
 
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    final languageService = LanguageService();
-    final themeService = ThemeService();
-    await themeService.initialize();
-    runApp(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider.value(value: languageService),
-          ChangeNotifierProvider.value(value: themeService),
-        ],
-        child: const MyApp(),
-      ),
-    );
-  }, (error, stackTrace) async {
-    await AppLogService.logError(
-      'Unhandled zone error',
-      error: error,
-      stackTrace: stackTrace,
-      origin: 'zone',
-    );
-  });
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      final languageService = LanguageService();
+      final themeService = ThemeService();
+      await themeService.initialize();
+      runApp(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: languageService),
+            ChangeNotifierProvider.value(value: themeService),
+          ],
+          child: const MyApp(),
+        ),
+      );
+    },
+    (error, stackTrace) async {
+      await AppLogService.logError(
+        'Unhandled zone error',
+        error: error,
+        stackTrace: stackTrace,
+        origin: 'zone',
+      );
+    },
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -514,6 +548,10 @@ class MyApp extends StatelessWidget {
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: Brightness.light,
+        ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -555,6 +593,10 @@ class MyApp extends StatelessWidget {
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+        ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -583,10 +625,7 @@ class MyApp extends StatelessWidget {
           darkTheme: _darkTheme(),
           themeMode: themeService.themeMode,
           locale: languageService.locale,
-          supportedLocales: const [
-            Locale('en'),
-            Locale('ru'),
-          ],
+          supportedLocales: const [Locale('en'), Locale('ru')],
           localizationsDelegates: const [
             AppLocalizations.delegate,
             GlobalMaterialLocalizations.delegate,
@@ -609,7 +648,9 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   static const String _playStoreAppId = 'com.wgfytunnel';
-  static const MethodChannel _wireGuardChannel = MethodChannel('wgfytunnel/wireguard');
+  static const MethodChannel _wireGuardChannel = MethodChannel(
+    'wgfytunnel/wireguard',
+  );
   static const double _mainActionButtonHeight = 56.0;
 
   List<File> _importedConfigs = const [];
@@ -698,7 +739,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final shouldRefresh =
         force || await SubscriptionService.shouldRefreshSubscriptions();
     if (shouldRefresh) {
-      final activeUntilByPath = await SubscriptionService.refreshAllSubscriptions();
+      final activeUntilByPath =
+          await SubscriptionService.refreshAllSubscriptions();
       if (!mounted) {
         return;
       }
@@ -744,7 +786,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Future<void> _refreshTunnelStatusAndRestoreTime() async {
     final refreshRevision = _tunnelStatusRevision;
     try {
-      final status = await _wireGuardChannel.invokeMethod<Map<dynamic, dynamic>>('getWireGuardStatus');
+      final status = await _wireGuardChannel
+          .invokeMethod<Map<dynamic, dynamic>>('getWireGuardStatus');
       if (!mounted || refreshRevision != _tunnelStatusRevision) return;
       final connected = status?['connected'] == true;
       setState(() {
@@ -838,12 +881,14 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         TextButton(
-                          onPressed: () => Navigator.of(dialogContext).pop(false),
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(false),
                           child: Text(l10n.later),
                         ),
                         const SizedBox(width: 8),
                         FilledButton(
-                          onPressed: () => Navigator.of(dialogContext).pop(true),
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(true),
                           child: Text(l10n.updateNow),
                         ),
                       ],
@@ -863,7 +908,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Future<bool> _openPlayStorePage() async {
     final uris = <Uri>[
       Uri.parse('market://details?id=$_playStoreAppId'),
-      Uri.parse('https://play.google.com/store/apps/details?id=$_playStoreAppId'),
+      Uri.parse(
+        'https://play.google.com/store/apps/details?id=$_playStoreAppId',
+      ),
     ];
 
     for (final uri in uris) {
@@ -1059,15 +1106,17 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       updatedActiveUntilByPath[actualRenamedFile.path] = activeUntilText;
     }
 
-    final updatedCountriesByPath =
-        Map<String, EndpointCountryInfo>.from(_configCountriesByPath);
+    final updatedCountriesByPath = Map<String, EndpointCountryInfo>.from(
+      _configCountriesByPath,
+    );
     final countryInfo = updatedCountriesByPath.remove(file.path);
     if (countryInfo != null) {
       updatedCountriesByPath[actualRenamedFile.path] = countryInfo;
     }
 
-    final updatedSelectedConfig =
-        _selectedConf?.path == file.path ? actualRenamedFile : _selectedConf;
+    final updatedSelectedConfig = _selectedConf?.path == file.path
+        ? actualRenamedFile
+        : _selectedConf;
 
     if (mounted) {
       setState(() {
@@ -1155,7 +1204,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
       if (line.startsWith('[') && line.endsWith(']')) {
         flushSection();
-        currentSection = line.substring(1, line.length - 1).trim().toLowerCase();
+        currentSection = line
+            .substring(1, line.length - 1)
+            .trim()
+            .toLowerCase();
         continue;
       }
 
@@ -1420,16 +1472,18 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
 
     unawaited(
-      _queueCountryLookupsForConfigs(
-        [file],
-        endpointsByPath: updatedEndpointsByPath,
-      ),
+      _queueCountryLookupsForConfigs([
+        file,
+      ], endpointsByPath: updatedEndpointsByPath),
     );
 
     return null;
   }
 
-  EndpointCountryInfo? _configCountryInfo(String endpointText, String filePath) {
+  EndpointCountryInfo? _configCountryInfo(
+    String endpointText,
+    String filePath,
+  ) {
     final lookupKey = EndpointCountryService.lookupKeyForEndpoint(endpointText);
     if (lookupKey == null) {
       return null;
@@ -1458,10 +1512,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }) async {
     for (final file in configs) {
       unawaited(
-        _resolveCountryForConfig(
-          file,
-          endpointsByPath: endpointsByPath,
-        ),
+        _resolveCountryForConfig(file, endpointsByPath: endpointsByPath),
       );
     }
   }
@@ -1470,16 +1521,19 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     File file, {
     Map<String, String>? endpointsByPath,
   }) async {
-    final endpointText = endpointsByPath?[file.path] ?? _configEndpointsByPath[file.path];
-    if (endpointText == null || endpointText.trim().isEmpty || endpointText == '-') {
+    final endpointText =
+        endpointsByPath?[file.path] ?? _configEndpointsByPath[file.path];
+    if (endpointText == null ||
+        endpointText.trim().isEmpty ||
+        endpointText == '-') {
       if (!mounted) {
         return;
       }
 
       setState(() {
-        final updatedCountriesByPath =
-            Map<String, EndpointCountryInfo>.from(_configCountriesByPath)
-              ..remove(file.path);
+        final updatedCountriesByPath = Map<String, EndpointCountryInfo>.from(
+          _configCountriesByPath,
+        )..remove(file.path);
         _configCountriesByPath = updatedCountriesByPath;
       });
       return;
@@ -1492,9 +1546,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       }
 
       setState(() {
-        final updatedCountriesByPath =
-            Map<String, EndpointCountryInfo>.from(_configCountriesByPath)
-              ..remove(file.path);
+        final updatedCountriesByPath = Map<String, EndpointCountryInfo>.from(
+          _configCountriesByPath,
+        )..remove(file.path);
         _configCountriesByPath = updatedCountriesByPath;
       });
       return;
@@ -1551,12 +1605,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     EndpointCountryInfo? countryInfo, {
     Map<String, String>? endpointsByPath,
   }) {
-    final updatedCountriesByPath =
-        Map<String, EndpointCountryInfo>.from(_configCountriesByPath);
+    final updatedCountriesByPath = Map<String, EndpointCountryInfo>.from(
+      _configCountriesByPath,
+    );
     final activeEndpointsByPath = endpointsByPath ?? _configEndpointsByPath;
 
     for (final entry in activeEndpointsByPath.entries) {
-      final entryLookupKey = EndpointCountryService.lookupKeyForEndpoint(entry.value);
+      final entryLookupKey = EndpointCountryService.lookupKeyForEndpoint(
+        entry.value,
+      );
       if (entryLookupKey != lookupKey) {
         continue;
       }
@@ -1584,10 +1641,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         ? Colors.white
         : Colors.black;
     final foregroundColor = forceWhiteIcon
-      ? Colors.white
-      : (isSelected
-        ? selectedForegroundColor
-        : colorScheme.onSurfaceVariant);
+        ? Colors.white
+        : (isSelected ? selectedForegroundColor : colorScheme.onSurfaceVariant);
 
     if (isLookupInFlight) {
       return SizedBox(
@@ -1610,10 +1665,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       return SizedBox(
         width: 44,
         height: 44,
-        child: Icon(
-          Icons.public_outlined,
-          color: foregroundColor,
-        ),
+        child: Icon(Icons.public_outlined, color: foregroundColor),
       );
     }
 
@@ -1639,7 +1691,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }) async {
     final entries = await Future.wait(
       configs.map((file) async {
-        final parsedConfig = selectedConfig != null && selectedConfig.path == file.path
+        final parsedConfig =
+            selectedConfig != null && selectedConfig.path == file.path
             ? selectedParsedConfig
             : await _readParsedConfig(file);
         return MapEntry(file.path, _configEndpointText(parsedConfig));
@@ -1693,7 +1746,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final restoredPinnedPaths = savedPinnedPaths
         .where((path) => restoredConfigs.any((file) => file.path == path))
         .toSet();
-    final orderedConfigs = _sortImportedConfigs(restoredConfigs, restoredPinnedPaths);
+    final orderedConfigs = _sortImportedConfigs(
+      restoredConfigs,
+      restoredPinnedPaths,
+    );
 
     File? selectedConfig;
     if (savedSelectedPath != null) {
@@ -1823,9 +1879,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     } finally {
       if (mounted) {
         setState(() {
-          _configPathsBeingUpdated = <String>{
-            ..._configPathsBeingUpdated,
-          }..remove(file.path);
+          _configPathsBeingUpdated = <String>{..._configPathsBeingUpdated}
+            ..remove(file.path);
         });
       }
     }
@@ -1837,13 +1892,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final updatedConfigs = _importedConfigs
         .where((config) => config.path != file.path)
         .toList(growable: false);
-    final updatedEndpointsByPath = Map<String, String>.from(_configEndpointsByPath)
-      ..remove(file.path);
-    final updatedActiveUntilByPath = Map<String, String>.from(_configActiveUntilByPath)
-      ..remove(file.path);
-    final updatedCountriesByPath =
-        Map<String, EndpointCountryInfo>.from(_configCountriesByPath)
-          ..remove(file.path);
+    final updatedEndpointsByPath = Map<String, String>.from(
+      _configEndpointsByPath,
+    )..remove(file.path);
+    final updatedActiveUntilByPath = Map<String, String>.from(
+      _configActiveUntilByPath,
+    )..remove(file.path);
+    final updatedCountriesByPath = Map<String, EndpointCountryInfo>.from(
+      _configCountriesByPath,
+    )..remove(file.path);
     final removedSelectedConfig = _selectedConf?.path == file.path;
     final nextSelectedConfig = removedSelectedConfig
         ? (updatedConfigs.isNotEmpty ? updatedConfigs.first : null)
@@ -1876,7 +1933,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     Set<String> pinnedPaths,
   ) async {
     final selectedPath = nextSelectedConfig?.path;
-    final parsedConfig = shouldReloadSelectedConfig && nextSelectedConfig != null
+    final parsedConfig =
+        shouldReloadSelectedConfig && nextSelectedConfig != null
         ? await _readParsedConfig(nextSelectedConfig)
         : _parsedConf;
 
@@ -1886,7 +1944,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       pinnedPaths: pinnedPaths,
     );
 
-    if (!mounted || !shouldReloadSelectedConfig || _selectedConf?.path != selectedPath) {
+    if (!mounted ||
+        !shouldReloadSelectedConfig ||
+        _selectedConf?.path != selectedPath) {
       return;
     }
 
@@ -1898,7 +1958,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Future<void> _refreshTunnelStatus() async {
     final refreshRevision = _tunnelStatusRevision;
     try {
-      final status = await _wireGuardChannel.invokeMethod<Map<dynamic, dynamic>>('getWireGuardStatus');
+      final status = await _wireGuardChannel
+          .invokeMethod<Map<dynamic, dynamic>>('getWireGuardStatus');
       if (!mounted || refreshRevision != _tunnelStatusRevision) return;
       final connected = status?['connected'] == true;
       setState(() {
@@ -1925,7 +1986,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       _connectionStartTime = DateTime.now();
       // Сохраняем время подключения
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_connectionStartTimeKey, _connectionStartTime!.millisecondsSinceEpoch);
+      await prefs.setInt(
+        _connectionStartTimeKey,
+        _connectionStartTime!.millisecondsSinceEpoch,
+      );
     }
     _fetchStats();
     _uptimeTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -1955,7 +2019,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   Future<void> _fetchStats() async {
     try {
-      final stats = await _wireGuardChannel.invokeMethod<Map<dynamic, dynamic>>('getWireGuardStats');
+      final stats = await _wireGuardChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'getWireGuardStats',
+      );
       if (!mounted || !_isConnected) return;
       setState(() {
         _rxBytes = (stats?['rxBytes'] as num?)?.toInt() ?? 0;
@@ -1996,14 +2062,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _importConfigFile(
-    File file, {
-    String? contentOverride,
-  }) async {
+  Future<void> _importConfigFile(File file, {String? contentOverride}) async {
     final l10n = AppLocalizations.of(context);
 
     try {
-      final content = (contentOverride ?? await _readConfigContent(file))?.trim();
+      final content = (contentOverride ?? await _readConfigContent(file))
+          ?.trim();
       if (content == null || content.isEmpty) {
         _showMessage(l10n.failedReadFile);
         return;
@@ -2057,10 +2121,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _isLoadingImportedConfigs = false;
       });
       unawaited(
-        _queueCountryLookupsForConfigs(
-          [file],
-          endpointsByPath: updatedEndpointsByPath,
-        ),
+        _queueCountryLookupsForConfigs([
+          file,
+        ], endpointsByPath: updatedEndpointsByPath),
       );
       await _persistImportedConfigs(updatedConfigs, selectedConfig: file);
     } catch (e) {
@@ -2102,19 +2165,14 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   Future<void> _scanQrConfig() async {
     final scannedConfig = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (context) => const QrConfigScannerPage(),
-      ),
+      MaterialPageRoute(builder: (context) => const QrConfigScannerPage()),
     );
     if (!mounted || scannedConfig == null || scannedConfig.trim().isEmpty) {
       return;
     }
 
     final managedFile = await _createManagedConfigFile('qr_config');
-    await _importConfigFile(
-      managedFile,
-      contentOverride: scannedConfig,
-    );
+    await _importConfigFile(managedFile, contentOverride: scannedConfig);
   }
 
   Future<void> _connectWireGuard() async {
@@ -2165,17 +2223,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       // Use sing-box backend when domain routing is needed (include/exclude domains)
       final useDomainRouting = domainMode != SplitTunnelDomainMode.all;
 
-      final status = await _wireGuardChannel.invokeMethod<Map<dynamic, dynamic>>(
-        'connectWireGuard',
-        {
-          'filePath': _selectedConf!.path,
-          'splitMode': splitMode.wireValue,
-          'selectedPackages': selectedPackages.toList()..sort(),
-          'domainMode': domainMode.wireValue,
-          'domainList': domainList,
-          'useDomainRouting': useDomainRouting,
-        },
-      );
+      final status = await _wireGuardChannel
+          .invokeMethod<Map<dynamic, dynamic>>('connectWireGuard', {
+            'filePath': _selectedConf!.path,
+            'splitMode': splitMode.wireValue,
+            'selectedPackages': selectedPackages.toList()..sort(),
+            'domainMode': domainMode.wireValue,
+            'domainList': domainList,
+            'useDomainRouting': useDomainRouting,
+          });
 
       if (!mounted) return;
 
@@ -2215,7 +2271,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     });
 
     try {
-      final status = await _wireGuardChannel.invokeMethod<Map<dynamic, dynamic>>('disconnectWireGuard');
+      final status = await _wireGuardChannel
+          .invokeMethod<Map<dynamic, dynamic>>('disconnectWireGuard');
       if (!mounted) return;
 
       final connected = status?['connected'] == true;
@@ -2327,7 +2384,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             );
           },
           child: !isVisible
-              ? const SizedBox.shrink(key: ValueKey<String>('hidden-notice-overlay'))
+              ? const SizedBox.shrink(
+                  key: ValueKey<String>('hidden-notice-overlay'),
+                )
               : SizedBox.expand(
                   key: ValueKey<String>(
                     'visible-notice-overlay-${_floatingNoticeText!}-$_floatingNoticeIsError',
@@ -2352,16 +2411,19 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                               children: [
                                 Expanded(
                                   child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
                                     child: Text(
                                       _floatingNoticeText ?? '',
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                       textAlign: TextAlign.center,
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: foregroundColor,
-                                        fontWeight: FontWeight.w700,
-                                      ),
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: foregroundColor,
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                     ),
                                   ),
                                 ),
@@ -2409,8 +2471,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
           editablePeerKeys: _editableConfigFieldKeys('peer'),
           configFieldControllerKeyBuilder: _configFieldControllerKey,
           isEditableField: _isEditableConfigField,
-          validateRename: (rawName) => _validateConfigRename(file, rawName, l10n),
-          saveEditedFields: (controllers) => _saveEditedConfigFields(file, controllers),
+          validateRename: (rawName) =>
+              _validateConfigRename(file, rawName, l10n),
+          saveEditedFields: (controllers) =>
+              _saveEditedConfigFields(file, controllers),
           renameConfig: (rawName) async {
             final renameResult = await _renameImportedConfig(file, rawName);
             return renameResult.error;
@@ -2428,7 +2492,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       updatedPinnedPaths.add(file.path);
     }
 
-    final updatedConfigs = _sortImportedConfigs(_importedConfigs, updatedPinnedPaths);
+    final updatedConfigs = _sortImportedConfigs(
+      _importedConfigs,
+      updatedPinnedPaths,
+    );
 
     setState(() {
       _pinnedConfigPaths = updatedPinnedPaths;
@@ -2538,33 +2605,32 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             final isSelected = _selectedConf?.path == file.path;
             final isPinned = _pinnedConfigPaths.contains(file.path);
             final isInactiveWhileConnected =
-              (_isConnected || _isConnecting) && !isSelected;
+                (_isConnected || _isConnecting) && !isSelected;
             final endpointText = _configEndpointsByPath[file.path] ?? '-';
             final activeUntilText = _configActiveUntilByPath[file.path];
             final showActiveUntil =
-                activeUntilText != null &&
-                activeUntilText.trim().isNotEmpty;
+                activeUntilText != null && activeUntilText.trim().isNotEmpty;
             final isSubscriptionExpired =
                 showActiveUntil &&
-              SubscriptionService.isSubscriptionExpired(activeUntilText);
+                SubscriptionService.isSubscriptionExpired(activeUntilText);
             final isDark = Theme.of(context).brightness == Brightness.dark;
-            final itemForegroundColor =
-              isDark ? Colors.white : colorScheme.onSurface;
-            final endpointColor =
-              isDark ? Colors.white : colorScheme.onSurfaceVariant;
-            final itemContentOpacity =
-              isDark && isInactiveWhileConnected ? 0.5 : 1.0;
+            final itemForegroundColor = isDark
+                ? Colors.white
+                : colorScheme.onSurface;
+            final endpointColor = isDark
+                ? Colors.white
+                : colorScheme.onSurfaceVariant;
+            final itemContentOpacity = isDark && isInactiveWhileConnected
+                ? 0.5
+                : 1.0;
             final isUpdatingThisConfig = _configPathsBeingUpdated.contains(
               file.path,
             );
             final cardBackgroundColor = isDark
-              ? Colors.transparent
-              : (isInactiveWhileConnected
-                ? Colors.white.withValues(alpha: 0.2)
-                : Colors.white);
-            final cardBorder = isDark
-              ? Border.all(color: const Color(0xFF141414), width: 2)
-              : null;
+                ? const Color(0xFF141414)
+                : (isInactiveWhileConnected
+                      ? Colors.white.withValues(alpha: 0.2)
+                      : Colors.white);
             final countryBadge = _buildConfigCountryBadge(
               filePath: file.path,
               endpointText: endpointText,
@@ -2583,20 +2649,19 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             final originalIndex = _importedConfigs.indexWhere(
               (config) => config.path == file.path,
             );
-            final moveOffset = !isReorderedForActiveTunnel ||
-                    selectedOriginalIndex <= 0
+            final moveOffset =
+                !isReorderedForActiveTunnel || selectedOriginalIndex <= 0
                 ? 0.0
                 : isSelected
                 ? _importedConfigs
-                  .take(selectedOriginalIndex)
-                  .fold<double>(
-                    0.0,
-                    (sum, config) =>
-                      sum + configItemExtentForPath(config.path),
-                  )
-                    : (originalIndex >= 0 &&
-                          originalIndex < selectedOriginalIndex
-                  ? -selectedConfigMoveExtent
+                      .take(selectedOriginalIndex)
+                      .fold<double>(
+                        0.0,
+                        (sum, config) =>
+                            sum + configItemExtentForPath(config.path),
+                      )
+                : (originalIndex >= 0 && originalIndex < selectedOriginalIndex
+                      ? -selectedConfigMoveExtent
                       : 0.0);
 
             return TweenAnimationBuilder<double>(
@@ -2606,10 +2671,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               tween: Tween<double>(begin: moveOffset, end: 0),
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeInOut,
-              builder: (context, offset, child) => Transform.translate(
-                offset: Offset(0, offset),
-                child: child,
-              ),
+              builder: (context, offset, child) =>
+                  Transform.translate(offset: Offset(0, offset), child: child),
               child: Dismissible(
                 key: ValueKey(file.path),
                 direction: dismissDirection,
@@ -2628,7 +2691,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                              isPinned
+                                  ? Icons.push_pin
+                                  : Icons.push_pin_outlined,
                               color: const Color.fromRGBO(255, 179, 0, 1),
                             ),
                             const SizedBox(width: 8),
@@ -2689,7 +2754,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                       decoration: BoxDecoration(
                         color: cardBackgroundColor,
                         borderRadius: dismissibleBorderRadius,
-                        border: cardBorder,
                         boxShadow: isDark
                             ? null
                             : const [
@@ -2730,8 +2794,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                       const SizedBox(width: 8),
                                       Expanded(
                                         child: Column(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             Text(
@@ -2741,16 +2807,21 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                               ),
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
-                                              style: textTheme.titleMedium?.copyWith(
-                                                color: itemForegroundColor,
-                                              ),
+                                              style: textTheme.titleMedium
+                                                  ?.copyWith(
+                                                    color: itemForegroundColor,
+                                                  ),
                                             ),
-                                            Text(
-                                              endpointText,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: textTheme.bodyMedium?.copyWith(
-                                                color: endpointColor,
+                                            Transform.translate(
+                                              offset: const Offset(0, -2),
+                                              child: Text(
+                                                endpointText,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: textTheme.bodyMedium
+                                                    ?.copyWith(
+                                                      color: endpointColor,
+                                                    ),
                                               ),
                                             ),
                                           ],
@@ -2771,7 +2842,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                           if (isSelected) ...[
                                             Icon(
                                               Icons.check_circle,
-                                              color: isDark ? Colors.white : Colors.black,
+                                              color: isDark
+                                                  ? Colors.white
+                                                  : Colors.black,
                                             ),
                                             const SizedBox(width: 8),
                                           ],
@@ -2779,32 +2852,42 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                             height: 32,
                                             width: 32,
                                             child: FilledButton(
-                                                onPressed: isUpdatingThisConfig
+                                              onPressed: isUpdatingThisConfig
                                                   ? null
-                                                  : () => _sendSelectedConfigUpdate(file),
+                                                  : () =>
+                                                        _sendSelectedConfigUpdate(
+                                                          file,
+                                                        ),
                                               style: FilledButton.styleFrom(
                                                 backgroundColor: isDark
-                                                    ? Colors.white.withValues(alpha: 0.12)
+                                                    ? Colors.white.withValues(
+                                                        alpha: 0.12,
+                                                      )
                                                     : Colors.black,
                                                 foregroundColor: Colors.white,
                                                 minimumSize: Size.zero,
                                                 padding: EdgeInsets.zero,
-                                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                                visualDensity: VisualDensity.compact,
+                                                tapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                                visualDensity:
+                                                    VisualDensity.compact,
                                                 shape: RoundedRectangleBorder(
-                                                  borderRadius: BorderRadius.circular(
-                                                    _elementBorderRadius,
-                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        _elementBorderRadius,
+                                                      ),
                                                 ),
                                               ),
                                               child: isUpdatingThisConfig
                                                   ? const SizedBox(
                                                       width: 14,
                                                       height: 14,
-                                                      child: CircularProgressIndicator(
-                                                        strokeWidth: 2,
-                                                        color: Colors.white,
-                                                      ),
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                            strokeWidth: 2,
+                                                            color: Colors.white,
+                                                          ),
                                                     )
                                                   : const Icon(
                                                       Icons.refresh,
@@ -2838,8 +2921,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                               color: isSubscriptionExpired
                                   ? const Color.fromRGBO(180, 80, 80, 1)
                                   : (isDark
-                                      ? Colors.white.withValues(alpha: 0.78)
-                                      : colorScheme.onSurfaceVariant),
+                                        ? Colors.white.withValues(alpha: 0.78)
+                                        : colorScheme.onSurfaceVariant),
                               fontWeight: isSubscriptionExpired
                                   ? FontWeight.w700
                                   : FontWeight.w600,
@@ -2889,24 +2972,26 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     const disconnectButtonColor = Color.fromRGBO(180, 80, 80, 1);
     final showActiveTunnelUi = _isConnected || _isConnecting;
     final connectButtonBackgroundColor = showActiveTunnelUi
-      ? disconnectButtonColor
-      : (isDark ? darkButtonBackgroundColor : Colors.black);
+        ? disconnectButtonColor
+        : (isDark ? darkButtonBackgroundColor : Colors.black);
     final connectButtonForegroundColor = showActiveTunnelUi
-      ? Colors.white
-      : (isDark ? Colors.white : Colors.white);
+        ? Colors.white
+        : (isDark ? Colors.white : Colors.white);
     final showAppBarNotice = _floatingNoticeText != null;
     const connectionAnimDuration = Duration(milliseconds: 500);
     const connectionAnimCurve = Curves.fastOutSlowIn;
     const defaultConfigsListHeightFactor = 1.0;
     final selectionWarningText = _selectionWarningText(l10n);
     final connectBlockedBySelection = selectionWarningText != null;
-    final canConnect = _selectedConf != null && hasValidConf && !connectBlockedBySelection;
-    final connectButtonOpacity = !_isConnected && !_isConnecting && connectBlockedBySelection
-      ? 0.5
-      : 1.0;
+    final canConnect =
+        _selectedConf != null && hasValidConf && !connectBlockedBySelection;
+    final connectButtonOpacity =
+        !_isConnected && !_isConnecting && connectBlockedBySelection
+        ? 0.5
+        : 1.0;
     final actionInfoText = selectionWarningText;
     final actionInfoColor = actionInfoText != null
-      ? const Color.fromRGBO(180, 80, 80, 1)
+        ? const Color.fromRGBO(180, 80, 80, 1)
         : null;
     const actionButtonTextStyle = TextStyle(
       fontSize: 16,
@@ -2931,12 +3016,14 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               ),
             ],
     );
-    final secondaryActionBackgroundColor =
-        isDark ? Colors.transparent : Colors.white;
-    final secondaryActionForegroundColor =
-        isDark ? Colors.white : Colors.black87;
+    final secondaryActionBackgroundColor = isDark
+        ? Colors.transparent
+        : Colors.white;
+    final secondaryActionForegroundColor = isDark
+        ? Colors.white
+        : Colors.black87;
     final secondaryActionBorderSide = isDark
-      ? BorderSide(color: darkButtonBackgroundColor, width: 2)
+        ? BorderSide(color: darkButtonBackgroundColor, width: 2)
         : BorderSide.none;
     final connectActionDecoration = BoxDecoration(
       borderRadius: const BorderRadius.all(
@@ -2944,18 +3031,19 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       ),
       boxShadow: secondaryActionDecoration.boxShadow,
     );
-    final systemUiOverlayStyle = (isDark
-            ? SystemUiOverlayStyle.light
-            : SystemUiOverlayStyle.dark)
-        .copyWith(
-          statusBarColor: Colors.transparent,
-          systemNavigationBarColor: Colors.black,
-          systemNavigationBarDividerColor: Colors.black,
-          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-          statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
-          systemNavigationBarIconBrightness: Brightness.light,
-          systemNavigationBarContrastEnforced: false,
-        );
+    // On Android 15, avoid setting system bar colors directly and only
+    // request icon brightness while edge-to-edge is enabled.
+    final systemUiOverlayStyle = isDark
+        ? const SystemUiOverlayStyle(
+            statusBarIconBrightness: Brightness.light,
+            statusBarBrightness: Brightness.dark,
+            systemNavigationBarIconBrightness: Brightness.light,
+          )
+        : const SystemUiOverlayStyle(
+            statusBarIconBrightness: Brightness.dark,
+            statusBarBrightness: Brightness.light,
+            systemNavigationBarIconBrightness: Brightness.dark,
+          );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: systemUiOverlayStyle,
@@ -2967,11 +3055,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               : Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    SizedBox(
-                      width: 30,
-                      height: 30,
-                      child: _buildVpnfyImage(),
-                    ),
+                    SizedBox(width: 30, height: 30, child: _buildVpnfyImage()),
                     const SizedBox(width: 10),
                     Text(
                       l10n.appTitle,
@@ -2990,7 +3074,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                         dimension: 36,
                         child: DecoratedBox(
                           decoration: BoxDecoration(
-                            color: isDark ? darkButtonBackgroundColor : Colors.white,
+                            color: isDark
+                                ? darkButtonBackgroundColor
+                                : Colors.white,
                             borderRadius: const BorderRadius.all(
                               Radius.circular(_elementBorderRadius),
                             ),
@@ -3006,23 +3092,29 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                   ],
                           ),
                           child: Material(
-                            color: isDark ? darkButtonBackgroundColor : Colors.white,
+                            color: isDark
+                                ? darkButtonBackgroundColor
+                                : Colors.white,
                             borderRadius: const BorderRadius.all(
                               Radius.circular(_elementBorderRadius),
                             ),
                             clipBehavior: Clip.antiAlias,
                             child: InkWell(
                               onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (context) => SplitTunnelSettingsPage(
-                                      isVpnConnected: () => _isConnected,
-                                    ),
-                                  ),
-                                ).then((_) {
-                                  _refreshSplitTunnelSelections();
-                                  _refreshTunnelStatus();
-                                });
+                                Navigator.of(context)
+                                    .push(
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            SplitTunnelSettingsPage(
+                                              isVpnConnected: () =>
+                                                  _isConnected,
+                                            ),
+                                      ),
+                                    )
+                                    .then((_) {
+                                      _refreshSplitTunnelSelections();
+                                      _refreshTunnelStatus();
+                                    });
                               },
                               child: Center(
                                 child: Icon(
@@ -3040,189 +3132,245 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                 ],
           flexibleSpace: _buildAppBarNoticeOverlay(),
         ),
-      body: Padding(
-        padding: const EdgeInsets.only(top: 16, bottom: 16),
-        child: Stack(
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Image.asset(
-                      'map.png',
-                      fit: BoxFit.fitWidth,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
-                      child: _buildVpnfyImage(width: 220),
-                    ),
-                  ],
-                ),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final actionButtonsBlockHeight = (_mainActionButtonHeight * 2) + 32.0;
-                      final availableListHeight = constraints.maxHeight > actionButtonsBlockHeight
-                          ? constraints.maxHeight - actionButtonsBlockHeight
-                          : 0.0;
-                      final targetListHeight =
-                          availableListHeight * defaultConfigsListHeightFactor;
+        body: Padding(
+          padding: const EdgeInsets.only(top: 16, bottom: 16),
+          child: Stack(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Image.asset('map.png', fit: BoxFit.fitWidth),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: _buildVpnfyImage(width: 220),
+                      ),
+                    ],
+                  ),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final actionButtonsBlockHeight =
+                            (_mainActionButtonHeight * 2) + 32.0;
+                        final availableListHeight =
+                            constraints.maxHeight > actionButtonsBlockHeight
+                            ? constraints.maxHeight - actionButtonsBlockHeight
+                            : 0.0;
+                        final targetListHeight =
+                            availableListHeight *
+                            defaultConfigsListHeightFactor;
 
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(
-                                  height: _mainActionButtonHeight,
-                                  child: actionInfoText == null || showActiveTunnelUi
-                                      ? AnimatedOpacity(
-                                          duration: connectionAnimDuration,
-                                          curve: connectionAnimCurve,
-                                          opacity: showActiveTunnelUi ? 0.5 : 1.0,
-                                          child: IgnorePointer(
-                                            ignoring: showActiveTunnelUi,
-                                            child: Row(
-                                              children: [
-                                                Expanded(
-                                                  child: DecoratedBox(
-                                                    decoration: secondaryActionDecoration,
-                                                    child: Tooltip(
-                                                      message: l10n.selectConfFile,
-                                                      child: OutlinedButton(
-                                                        onPressed: _importConf,
-                                                        style: OutlinedButton.styleFrom(
-                                                          backgroundColor: secondaryActionBackgroundColor,
-                                                          foregroundColor: secondaryActionForegroundColor,
-                                                          minimumSize: const Size.fromHeight(_mainActionButtonHeight),
-                                                          padding: EdgeInsets.zero,
-                                                          textStyle: actionButtonTextStyle,
-                                                          shape: actionButtonShape,
-                                                          side: secondaryActionBorderSide,
-                                                          elevation: 0,
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    height: _mainActionButtonHeight,
+                                    child:
+                                        actionInfoText == null ||
+                                            showActiveTunnelUi
+                                        ? AnimatedOpacity(
+                                            duration: connectionAnimDuration,
+                                            curve: connectionAnimCurve,
+                                            opacity: showActiveTunnelUi
+                                                ? 0.5
+                                                : 1.0,
+                                            child: IgnorePointer(
+                                              ignoring: showActiveTunnelUi,
+                                              child: Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: DecoratedBox(
+                                                      decoration:
+                                                          secondaryActionDecoration,
+                                                      child: Tooltip(
+                                                        message:
+                                                            l10n.selectConfFile,
+                                                        child: OutlinedButton(
+                                                          onPressed:
+                                                              _importConf,
+                                                          style: OutlinedButton.styleFrom(
+                                                            backgroundColor:
+                                                                secondaryActionBackgroundColor,
+                                                            foregroundColor:
+                                                                secondaryActionForegroundColor,
+                                                            minimumSize:
+                                                                const Size.fromHeight(
+                                                                  _mainActionButtonHeight,
+                                                                ),
+                                                            padding:
+                                                                EdgeInsets.zero,
+                                                            textStyle:
+                                                                actionButtonTextStyle,
+                                                            shape:
+                                                                actionButtonShape,
+                                                            side:
+                                                                secondaryActionBorderSide,
+                                                            elevation: 0,
+                                                          ),
+                                                          child: const Icon(
+                                                            Icons
+                                                                .insert_drive_file_outlined,
+                                                            size: 28,
+                                                          ),
                                                         ),
-                                                        child: const Icon(Icons.insert_drive_file_outlined, size: 28),
                                                       ),
                                                     ),
                                                   ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Expanded(
-                                                  child: DecoratedBox(
-                                                    decoration: secondaryActionDecoration,
-                                                    child: Tooltip(
-                                                      message: l10n.scanQrCode,
-                                                      child: OutlinedButton(
-                                                        onPressed: _scanQrConfig,
-                                                        style: OutlinedButton.styleFrom(
-                                                          backgroundColor: secondaryActionBackgroundColor,
-                                                          foregroundColor: secondaryActionForegroundColor,
-                                                          minimumSize: const Size.fromHeight(_mainActionButtonHeight),
-                                                          padding: EdgeInsets.zero,
-                                                          textStyle: actionButtonTextStyle,
-                                                          shape: actionButtonShape,
-                                                          side: secondaryActionBorderSide,
-                                                          elevation: 0,
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: DecoratedBox(
+                                                      decoration:
+                                                          secondaryActionDecoration,
+                                                      child: Tooltip(
+                                                        message:
+                                                            l10n.scanQrCode,
+                                                        child: OutlinedButton(
+                                                          onPressed:
+                                                              _scanQrConfig,
+                                                          style: OutlinedButton.styleFrom(
+                                                            backgroundColor:
+                                                                secondaryActionBackgroundColor,
+                                                            foregroundColor:
+                                                                secondaryActionForegroundColor,
+                                                            minimumSize:
+                                                                const Size.fromHeight(
+                                                                  _mainActionButtonHeight,
+                                                                ),
+                                                            padding:
+                                                                EdgeInsets.zero,
+                                                            textStyle:
+                                                                actionButtonTextStyle,
+                                                            shape:
+                                                                actionButtonShape,
+                                                            side:
+                                                                secondaryActionBorderSide,
+                                                            elevation: 0,
+                                                          ),
+                                                          child: const Icon(
+                                                            Icons
+                                                                .qr_code_scanner,
+                                                            size: 28,
+                                                          ),
                                                         ),
-                                                        child: const Icon(Icons.qr_code_scanner, size: 28),
                                                       ),
                                                     ),
                                                   ),
-                                                ),
-                                              ],
+                                                ],
+                                              ),
                                             ),
-                                          ),
-                                        )
-                                      : Center(
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                                            child: Text(
-                                              actionInfoText,
-                                              textAlign: TextAlign.center,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                                color: actionInfoColor,
-                                                fontWeight: FontWeight.w600,
+                                          )
+                                        : Center(
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                  ),
+                                              child: Text(
+                                                actionInfoText,
+                                                textAlign: TextAlign.center,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodyMedium
+                                                    ?.copyWith(
+                                                      color: actionInfoColor,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
                                               ),
                                             ),
                                           ),
-                                        ),
-                                ),
-                                const SizedBox(height: 8),
-                                SizedBox(
-                                  height: _mainActionButtonHeight,
-                                  child: DecoratedBox(
-                                    decoration: connectActionDecoration,
-                                    child: AnimatedOpacity(
-                                      duration: connectionAnimDuration,
-                                      curve: connectionAnimCurve,
-                                      opacity: connectButtonOpacity,
-                                      child: ElevatedButton(
-                                        style: ElevatedButton.styleFrom(
-                                          minimumSize: const Size.fromHeight(_mainActionButtonHeight),
-                                          padding: EdgeInsets.zero,
-                                          backgroundColor: connectButtonBackgroundColor,
-                                          foregroundColor: connectButtonForegroundColor,
-                                          disabledBackgroundColor: connectBlockedBySelection
-                                              ? connectButtonBackgroundColor
-                                              : connectButtonBackgroundColor.withValues(alpha: 0.24),
-                                          disabledForegroundColor: connectBlockedBySelection
-                                              ? connectButtonForegroundColor
-                                              : connectButtonForegroundColor.withValues(alpha: 0.45),
-                                          elevation: 0,
-                                          shape: actionButtonShape,
-                                          textStyle: actionButtonTextStyle,
-                                        ),
-                                        onPressed: _isConnecting
-                                            ? null
-                                            : (_isConnected
-                                                ? _disconnectWireGuard
-                                                : (canConnect ? _connectWireGuard : null)),
-                                        child: Text(
-                                          _isConnected
-                                              ? '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}'
-                                              : l10n.connect,
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w700,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  SizedBox(
+                                    height: _mainActionButtonHeight,
+                                    child: DecoratedBox(
+                                      decoration: connectActionDecoration,
+                                      child: AnimatedOpacity(
+                                        duration: connectionAnimDuration,
+                                        curve: connectionAnimCurve,
+                                        opacity: connectButtonOpacity,
+                                        child: ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            minimumSize: const Size.fromHeight(
+                                              _mainActionButtonHeight,
+                                            ),
+                                            padding: EdgeInsets.zero,
+                                            backgroundColor:
+                                                connectButtonBackgroundColor,
+                                            foregroundColor:
+                                                connectButtonForegroundColor,
+                                            disabledBackgroundColor:
+                                                connectBlockedBySelection
+                                                ? connectButtonBackgroundColor
+                                                : connectButtonBackgroundColor
+                                                      .withValues(alpha: 0.24),
+                                            disabledForegroundColor:
+                                                connectBlockedBySelection
+                                                ? connectButtonForegroundColor
+                                                : connectButtonForegroundColor
+                                                      .withValues(alpha: 0.45),
+                                            elevation: 0,
+                                            shape: actionButtonShape,
+                                            textStyle: actionButtonTextStyle,
+                                          ),
+                                          onPressed: _isConnecting
+                                              ? null
+                                              : (_isConnected
+                                                    ? _disconnectWireGuard
+                                                    : (canConnect
+                                                          ? _connectWireGuard
+                                                          : null)),
+                                          child: Text(
+                                            _isConnected
+                                                ? '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}'
+                                                : l10n.connect,
+                                            style: const TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                           ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(height: 0),
-                              ],
+                                  const SizedBox(height: 0),
+                                ],
+                              ),
                             ),
-                          ),
-                          SizedBox(
-                            height: targetListHeight,
-                            child: ClipRect(
-                              child: Transform.translate(
-                                offset: const Offset(0, -4),
-                                child: _buildImportedConfigsList(
-                                  viewportHeight: targetListHeight,
+                            SizedBox(
+                              height: targetListHeight,
+                              child: ClipRect(
+                                child: Transform.translate(
+                                  offset: const Offset(0, -4),
+                                  child: _buildImportedConfigsList(
+                                    viewportHeight: targetListHeight,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
-                      );
-                    },
+                          ],
+                        );
+                      },
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
-    ));
+    );
   }
 }
