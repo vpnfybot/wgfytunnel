@@ -50,6 +50,22 @@ enum SplitTunnelMode {
   final String description;
 }
 
+class _ImportedConfigListEntry {
+  const _ImportedConfigListEntry.config(File config)
+    : file = config,
+      sectionLabel = null;
+
+  const _ImportedConfigListEntry.section(String label)
+    : file = null,
+      sectionLabel = label;
+
+  final File? file;
+  final String? sectionLabel;
+
+  bool get isSection => sectionLabel != null;
+  File get configFile => file!;
+}
+
 class _ConfigEditorPage extends StatefulWidget {
   const _ConfigEditorPage({
     required this.file,
@@ -652,21 +668,21 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     'wgfytunnel/wireguard',
   );
   static const double _mainActionButtonHeight = 56.0;
+  static const double _configProtocolSectionHeight = 32.0;
 
   List<File> _importedConfigs = const [];
   Set<String> _pinnedConfigPaths = <String>{};
   Map<String, String> _configEndpointsByPath = const <String, String>{};
+  Map<String, bool> _configIsAmneziaByPath = const <String, bool>{};
   Map<String, String> _configActiveUntilByPath = const <String, String>{};
   Map<String, EndpointCountryInfo> _configCountriesByPath =
       const <String, EndpointCountryInfo>{};
   File? _selectedConf;
   Map<String, dynamic>? _parsedConf;
   bool _isConnecting = false;
+  bool _isWaitingForTunnelTraffic = false;
   bool _isConnected = false;
   bool _isLoadingImportedConfigs = true;
-  Timer? _floatingNoticeTimer;
-  String? _floatingNoticeText;
-  bool _floatingNoticeIsError = false;
   int _rxBytes = 0;
   int _txBytes = 0;
   Timer? _statsTimer;
@@ -685,6 +701,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Timer? _subscriptionsRefreshTimer;
   final ScrollController _configsListScrollController = ScrollController();
   bool _wasConfigListReorderedForActiveTunnel = false;
+  double? _lastConfigListActiveScrollTarget;
   Set<String> _configPathsBeingUpdated = <String>{};
 
   @override
@@ -705,7 +722,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _clearFloatingNotice();
     _statsTimer?.cancel();
     _uptimeTimer?.cancel();
     _subscriptionsRefreshTimer?.cancel();
@@ -751,12 +767,23 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
   }
 
-  void _syncConfigListScrollForActiveTunnel(bool isReorderedForActiveTunnel) {
-    if (_wasConfigListReorderedForActiveTunnel == isReorderedForActiveTunnel) {
+  void _syncConfigListScrollForActiveTunnel(
+    bool isReorderedForActiveTunnel, {
+    double targetOffset = 0,
+  }) {
+    final previousTarget = _lastConfigListActiveScrollTarget;
+    final targetDidChange =
+        previousTarget == null || (previousTarget - targetOffset).abs() > 0.5;
+
+    if (_wasConfigListReorderedForActiveTunnel == isReorderedForActiveTunnel &&
+        (!isReorderedForActiveTunnel || !targetDidChange)) {
       return;
     }
 
     _wasConfigListReorderedForActiveTunnel = isReorderedForActiveTunnel;
+    _lastConfigListActiveScrollTarget = isReorderedForActiveTunnel
+        ? targetOffset
+        : null;
     if (!isReorderedForActiveTunnel) {
       return;
     }
@@ -766,8 +793,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         return;
       }
 
+      final clampedOffset = targetOffset.clamp(
+        0.0,
+        _configsListScrollController.position.maxScrollExtent,
+      );
       _configsListScrollController.animateTo(
-        0,
+        clampedOffset,
         duration: const Duration(milliseconds: 280),
         curve: Curves.easeOutCubic,
       );
@@ -792,6 +823,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       final connected = status?['connected'] == true;
       setState(() {
         _isConnected = connected;
+        if (!connected) {
+          _isWaitingForTunnelTraffic = false;
+        }
       });
       if (connected) {
         // Попробуем восстановить время подключения
@@ -808,6 +842,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       if (!mounted || refreshRevision != _tunnelStatusRevision) return;
       setState(() {
         _isConnected = false;
+        _isWaitingForTunnelTraffic = false;
       });
       _stopStatsPolling();
     }
@@ -1098,6 +1133,14 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       updatedEndpointsByPath[actualRenamedFile.path] = endpointText;
     }
 
+    final updatedIsAmneziaByPath = Map<String, bool>.from(
+      _configIsAmneziaByPath,
+    );
+    final isAmnezia = updatedIsAmneziaByPath.remove(file.path);
+    if (isAmnezia != null) {
+      updatedIsAmneziaByPath[actualRenamedFile.path] = isAmnezia;
+    }
+
     final updatedActiveUntilByPath = Map<String, String>.from(
       _configActiveUntilByPath,
     );
@@ -1123,6 +1166,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _importedConfigs = updatedConfigs;
         _pinnedConfigPaths = updatedPinnedPaths;
         _configEndpointsByPath = updatedEndpointsByPath;
+        _configIsAmneziaByPath = updatedIsAmneziaByPath;
         _configActiveUntilByPath = updatedActiveUntilByPath;
         _configCountriesByPath = updatedCountriesByPath;
         _selectedConf = updatedSelectedConfig;
@@ -1314,6 +1358,41 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     return _firstNonEmptyValue(peers.first, const ['Endpoint']) ?? '-';
   }
 
+  bool _isAmneziaConfig(Map<String, dynamic>? parsedConfig) {
+    if (parsedConfig == null) {
+      return false;
+    }
+
+    const amneziaInterfaceKeys = <String>{
+      'jc',
+      'jmin',
+      'jmax',
+      's1',
+      's2',
+      's3',
+      's4',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'i1',
+      'i2',
+      'i3',
+      'i4',
+      'i5',
+      'j1',
+      'j2',
+      'j3',
+      'itime',
+    };
+    final interfaces = _stringSections(parsedConfig['interfaces']);
+    return interfaces.any(
+      (interface) => interface.keys.any(
+        (key) => amneziaInterfaceKeys.contains(key.trim().toLowerCase()),
+      ),
+    );
+  }
+
   List<String> _editableConfigFieldKeys(String sectionType) {
     switch (sectionType) {
       case 'interface':
@@ -1461,10 +1540,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       ..._configEndpointsByPath,
       file.path: _configEndpointText(updatedParsedConfig),
     };
+    final updatedIsAmneziaByPath = <String, bool>{
+      ..._configIsAmneziaByPath,
+      file.path: _isAmneziaConfig(updatedParsedConfig),
+    };
 
     if (mounted) {
       setState(() {
         _configEndpointsByPath = updatedEndpointsByPath;
+        _configIsAmneziaByPath = updatedIsAmneziaByPath;
         if (_selectedConf?.path == file.path) {
           _parsedConf = updatedParsedConfig;
         }
@@ -1645,9 +1729,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         : (isSelected ? selectedForegroundColor : colorScheme.onSurfaceVariant);
 
     if (isLookupInFlight) {
-      return SizedBox(
-        width: 44,
-        height: 44,
+      return _buildConfigCountryBadgeFrame(
         child: Center(
           child: SizedBox(
             width: 18,
@@ -1662,24 +1744,57 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
 
     if (countryInfo == null) {
-      return SizedBox(
-        width: 44,
-        height: 44,
+      return _buildConfigCountryBadgeFrame(
         child: Icon(Icons.public_outlined, color: foregroundColor),
       );
     }
 
     return Tooltip(
       message: countryInfo.countryName,
-      child: SizedBox(
-        width: 44,
-        height: 44,
+      child: _buildConfigCountryBadgeFrame(
         child: Center(
           child: Text(
             countryInfo.flagEmoji,
             style: const TextStyle(fontSize: 24, height: 1),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildConfigCountryBadgeFrame({required Widget child}) {
+    return SizedBox(width: 44, height: 44, child: Center(child: child));
+  }
+
+  Widget _buildConfigProtocolSectionLabel({
+    required String label,
+    required ColorScheme colorScheme,
+    required TextTheme textTheme,
+  }) {
+    final dividerColor = colorScheme.onSurfaceVariant.withValues(alpha: 0.28);
+    final labelStyle = textTheme.labelSmall?.copyWith(
+      color: colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.w800,
+      letterSpacing: 0,
+    );
+
+    return SizedBox(
+      height: _configProtocolSectionHeight,
+      child: Row(
+        children: [
+          Expanded(child: Divider(height: 1, color: dividerColor)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: labelStyle,
+            ),
+          ),
+          Expanded(child: Divider(height: 1, color: dividerColor)),
+        ],
       ),
     );
   }
@@ -1702,6 +1817,24 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     return Map<String, String>.fromEntries(entries);
   }
 
+  Future<Map<String, bool>> _buildConfigProtocolMap(
+    List<File> configs, {
+    File? selectedConfig,
+    Map<String, dynamic>? selectedParsedConfig,
+  }) async {
+    final entries = await Future.wait(
+      configs.map((file) async {
+        final parsedConfig =
+            selectedConfig != null && selectedConfig.path == file.path
+            ? selectedParsedConfig
+            : await _readParsedConfig(file);
+        return MapEntry(file.path, _isAmneziaConfig(parsedConfig));
+      }),
+    );
+
+    return Map<String, bool>.fromEntries(entries);
+  }
+
   List<File> _sortImportedConfigs(List<File> configs, Set<String> pinnedPaths) {
     final pinnedConfigs = <File>[];
     final regularConfigs = <File>[];
@@ -1715,6 +1848,75 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
 
     return <File>[...pinnedConfigs, ...regularConfigs];
+  }
+
+  bool _isAmneziaConfigFile(File file) {
+    return _configIsAmneziaByPath[file.path] ?? false;
+  }
+
+  List<File> _protocolOrderedConfigs(Iterable<File> configs) {
+    final wireGuardConfigs = <File>[];
+    final amneziaConfigs = <File>[];
+
+    for (final file in configs) {
+      if (_isAmneziaConfigFile(file)) {
+        amneziaConfigs.add(file);
+      } else {
+        wireGuardConfigs.add(file);
+      }
+    }
+
+    return <File>[...wireGuardConfigs, ...amneziaConfigs];
+  }
+
+  List<File> _configsWithActiveFirstWithinProtocol(List<File> configs) {
+    final selectedConfig = _selectedConf;
+    if (selectedConfig == null ||
+        !configs.any((config) => config.path == selectedConfig.path)) {
+      return configs;
+    }
+
+    final selectedIsAmnezia = _isAmneziaConfigFile(selectedConfig);
+    final wireGuardConfigs = <File>[];
+    final amneziaConfigs = <File>[];
+
+    for (final file in configs) {
+      if (_isAmneziaConfigFile(file)) {
+        amneziaConfigs.add(file);
+      } else {
+        wireGuardConfigs.add(file);
+      }
+    }
+
+    final activeGroup = selectedIsAmnezia ? amneziaConfigs : wireGuardConfigs;
+    final activeIndex = activeGroup.indexWhere(
+      (config) => config.path == selectedConfig.path,
+    );
+    if (activeIndex > 0) {
+      activeGroup.insert(0, activeGroup.removeAt(activeIndex));
+    }
+
+    return <File>[...wireGuardConfigs, ...amneziaConfigs];
+  }
+
+  List<_ImportedConfigListEntry> _buildImportedConfigListEntries(
+    List<File> configs,
+  ) {
+    final entries = <_ImportedConfigListEntry>[];
+    var hasAddedAmneziaSection = false;
+
+    for (final file in configs) {
+      if (_isAmneziaConfigFile(file) && !hasAddedAmneziaSection) {
+        entries.add(
+          const _ImportedConfigListEntry.section('amnezia-wireguard'),
+        );
+        hasAddedAmneziaSection = true;
+      }
+
+      entries.add(_ImportedConfigListEntry.config(file));
+    }
+
+    return entries;
   }
 
   Future<void> _persistImportedConfigs(
@@ -1770,6 +1972,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       selectedConfig: selectedConfig,
       selectedParsedConfig: parsedConfig,
     );
+    final isAmneziaByPath = await _buildConfigProtocolMap(
+      orderedConfigs,
+      selectedConfig: selectedConfig,
+      selectedParsedConfig: parsedConfig,
+    );
     final restoredPaths = orderedConfigs
         .map((file) => file.path)
         .toList(growable: false);
@@ -1790,6 +1997,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       _importedConfigs = orderedConfigs;
       _pinnedConfigPaths = restoredPinnedPaths;
       _configEndpointsByPath = endpointsByPath;
+      _configIsAmneziaByPath = isAmneziaByPath;
       _selectedConf = selectedConfig;
       _parsedConf = parsedConfig;
       _isLoadingImportedConfigs = false;
@@ -1825,6 +2033,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       _configEndpointsByPath = <String, String>{
         ..._configEndpointsByPath,
         file.path: _configEndpointText(parsedConfig),
+      };
+      _configIsAmneziaByPath = <String, bool>{
+        ..._configIsAmneziaByPath,
+        file.path: _isAmneziaConfig(parsedConfig),
       };
       _selectedConf = file;
       _parsedConf = parsedConfig;
@@ -1895,6 +2107,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final updatedEndpointsByPath = Map<String, String>.from(
       _configEndpointsByPath,
     )..remove(file.path);
+    final updatedIsAmneziaByPath = Map<String, bool>.from(
+      _configIsAmneziaByPath,
+    )..remove(file.path);
     final updatedActiveUntilByPath = Map<String, String>.from(
       _configActiveUntilByPath,
     )..remove(file.path);
@@ -1911,6 +2126,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       _importedConfigs = updatedConfigs;
       _pinnedConfigPaths = updatedPinnedPaths;
       _configEndpointsByPath = updatedEndpointsByPath;
+      _configIsAmneziaByPath = updatedIsAmneziaByPath;
       _configActiveUntilByPath = updatedActiveUntilByPath;
       _configCountriesByPath = updatedCountriesByPath;
       _selectedConf = nextSelectedConfig;
@@ -1964,6 +2180,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       final connected = status?['connected'] == true;
       setState(() {
         _isConnected = connected;
+        if (!connected) {
+          _isWaitingForTunnelTraffic = false;
+        }
       });
       if (connected) {
         _startStatsPolling();
@@ -1974,6 +2193,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       if (!mounted || refreshRevision != _tunnelStatusRevision) return;
       setState(() {
         _isConnected = false;
+        _isWaitingForTunnelTraffic = false;
       });
       _stopStatsPolling();
     }
@@ -2013,6 +2233,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       setState(() {
         _rxBytes = 0;
         _txBytes = 0;
+        _isWaitingForTunnelTraffic = false;
       });
     }
   }
@@ -2023,11 +2244,35 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         'getWireGuardStats',
       );
       if (!mounted || !_isConnected) return;
+      final rxBytes = (stats?['rxBytes'] as num?)?.toInt() ?? 0;
+      final txBytes = (stats?['txBytes'] as num?)?.toInt() ?? 0;
+      final hasTraffic = rxBytes + txBytes > 0;
+      final hasWaitedForStats =
+          _connectionStartTime != null &&
+          DateTime.now().difference(_connectionStartTime!) >=
+              const Duration(seconds: 2);
       setState(() {
-        _rxBytes = (stats?['rxBytes'] as num?)?.toInt() ?? 0;
-        _txBytes = (stats?['txBytes'] as num?)?.toInt() ?? 0;
+        _rxBytes = rxBytes;
+        _txBytes = txBytes;
+        if (_isWaitingForTunnelTraffic && (hasTraffic || hasWaitedForStats)) {
+          _isWaitingForTunnelTraffic = false;
+        }
       });
-    } catch (_) {}
+    } catch (_) {
+      if (!mounted || !_isWaitingForTunnelTraffic) {
+        return;
+      }
+
+      final hasWaitedForStats =
+          _connectionStartTime != null &&
+          DateTime.now().difference(_connectionStartTime!) >=
+              const Duration(seconds: 2);
+      if (hasWaitedForStats) {
+        setState(() {
+          _isWaitingForTunnelTraffic = false;
+        });
+      }
+    }
   }
 
   String _formatBytes(int bytes) {
@@ -2112,10 +2357,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         file.path: _configEndpointText(parsed),
         ..._configEndpointsByPath,
       };
+      final updatedIsAmneziaByPath = <String, bool>{
+        file.path: _isAmneziaConfig(parsed),
+        ..._configIsAmneziaByPath,
+      };
 
       setState(() {
         _importedConfigs = updatedConfigs;
         _configEndpointsByPath = updatedEndpointsByPath;
+        _configIsAmneziaByPath = updatedIsAmneziaByPath;
         _selectedConf = file;
         _parsedConf = parsed;
         _isLoadingImportedConfigs = false;
@@ -2191,6 +2441,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     _tunnelStatusRevision += 1;
     setState(() {
       _isConnecting = true;
+      _isWaitingForTunnelTraffic = false;
+      _rxBytes = 0;
+      _txBytes = 0;
     });
 
     final selections = await SplitTunnelPrefs.loadSelections();
@@ -2238,9 +2491,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       final connected = status?['connected'] == true;
       setState(() {
         _isConnected = connected;
+        _isWaitingForTunnelTraffic = connected;
       });
       if (connected) {
         _startStatsPolling();
+      } else {
+        _stopStatsPolling();
       }
 
       final message = status?['message'] as String?;
@@ -2248,10 +2504,20 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _showMessage(_translatedRuntimeMessage(message));
       }
     } on PlatformException catch (e) {
+      if (mounted) {
+        setState(() {
+          _isWaitingForTunnelTraffic = false;
+        });
+      }
       _showMessage(
         '${l10n.failedStartTunnel}: ${_translatedRuntimeMessage(e.message ?? e.code)}',
       );
     } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isWaitingForTunnelTraffic = false;
+        });
+      }
       _showMessage('${l10n.failedStartTunnel}: $e');
     } finally {
       if (mounted) {
@@ -2268,6 +2534,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     _clearFloatingNotice();
     setState(() {
       _isConnecting = true;
+      _isWaitingForTunnelTraffic = false;
     });
 
     try {
@@ -2310,32 +2577,54 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       unawaited(AppLogService.logError(text, origin: 'ui'));
     }
 
-    _floatingNoticeTimer?.cancel();
-    setState(() {
-      _floatingNoticeText = text;
-      _floatingNoticeIsError = isError;
-    });
-    _floatingNoticeTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) {
-        return;
-      }
-      _clearFloatingNotice();
-    });
-  }
-
-  void _clearFloatingNotice() {
-    _floatingNoticeTimer?.cancel();
-    _floatingNoticeTimer = null;
-    if (!mounted) {
-      _floatingNoticeText = null;
-      _floatingNoticeIsError = false;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final backgroundColor = isError
+        ? const Color.fromRGBO(180, 80, 80, 1)
+        : (isDark ? Colors.white : Colors.black);
+    final foregroundColor = isError
+        ? Colors.white
+        : (isDark ? Colors.black : Colors.white);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) {
       return;
     }
 
-    setState(() {
-      _floatingNoticeText = null;
-      _floatingNoticeIsError = false;
-    });
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: backgroundColor,
+          margin: EdgeInsets.fromLTRB(
+            16,
+            0,
+            16,
+            16 + MediaQuery.paddingOf(context).bottom,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_elementBorderRadius),
+          ),
+          duration: const Duration(seconds: 3),
+          content: SizedBox(
+            width: double.infinity,
+            child: Text(
+              text,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: foregroundColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      );
+  }
+
+  void _clearFloatingNotice() {
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
   }
 
   Widget _buildVpnfyImage({
@@ -2349,94 +2638,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       width: width,
       height: height,
       fit: fit,
-    );
-  }
-
-  Widget _buildAppBarNoticeOverlay() {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final isVisible = _floatingNoticeText != null;
-    final backgroundColor = isDark ? Colors.white : Colors.black;
-    final foregroundColor = isDark ? Colors.black : Colors.white;
-    return IgnorePointer(
-      ignoring: !isVisible,
-      child: ClipRect(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 320),
-          reverseDuration: const Duration(milliseconds: 220),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) {
-            final curvedAnimation = CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutCubic,
-              reverseCurve: Curves.easeInCubic,
-            );
-            return FadeTransition(
-              opacity: curvedAnimation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, -1),
-                  end: Offset.zero,
-                ).animate(curvedAnimation),
-                child: child,
-              ),
-            );
-          },
-          child: !isVisible
-              ? const SizedBox.shrink(
-                  key: ValueKey<String>('hidden-notice-overlay'),
-                )
-              : SizedBox.expand(
-                  key: ValueKey<String>(
-                    'visible-notice-overlay-${_floatingNoticeText!}-$_floatingNoticeIsError',
-                  ),
-                  child: Dismissible(
-                    key: ValueKey<String>(
-                      'dismissible-notice-${_floatingNoticeText!}-$_floatingNoticeIsError',
-                    ),
-                    direction: DismissDirection.up,
-                    resizeDuration: null,
-                    movementDuration: const Duration(milliseconds: 220),
-                    onDismissed: (_) => _clearFloatingNotice(),
-                    child: Material(
-                      color: backgroundColor,
-                      child: SafeArea(
-                        bottom: false,
-                        child: SizedBox(
-                          height: kToolbarHeight,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                    ),
-                                    child: Text(
-                                      _floatingNoticeText ?? '',
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            color: foregroundColor,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-        ),
-      ),
     );
   }
 
@@ -2534,26 +2735,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       );
     }
 
-    final hasSelectedConfigInList =
-        _selectedConf != null &&
-        _importedConfigs.any((config) => config.path == _selectedConf!.path);
-    final isReorderedForActiveTunnel =
-        (_isConnected || _isConnecting) && hasSelectedConfigInList;
-    final selectedOriginalIndex = hasSelectedConfigInList
-        ? _importedConfigs.indexWhere(
-            (config) => config.path == _selectedConf!.path,
-          )
-        : -1;
-    final displayedConfigs = isReorderedForActiveTunnel
-        ? <File>[
-            _selectedConf!,
-            ..._importedConfigs.where(
-              (config) => config.path != _selectedConf!.path,
-            ),
-          ]
-        : _importedConfigs;
-    _syncConfigListScrollForActiveTunnel(isReorderedForActiveTunnel);
-
     const configItemSpacing = 4.0;
     const listTopPadding = 12.0;
     const listBottomPadding = 8.0;
@@ -2567,26 +2748,57 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
 
     double configItemExtentForPath(String path) {
-      return _mainActionButtonHeight +
-          configItemSpacing +
-          configDateExtraHeightForPath(path);
+      return _mainActionButtonHeight + configDateExtraHeightForPath(path);
     }
 
-    final totalDateExtraHeight = displayedConfigs.fold<double>(
+    final protocolOrderedConfigs = _protocolOrderedConfigs(_importedConfigs);
+    final hasSelectedConfigInList =
+        _selectedConf != null &&
+        protocolOrderedConfigs.any(
+          (config) => config.path == _selectedConf!.path,
+        );
+    final shouldReorderActiveConfig =
+        (_isConnected || _isConnecting) && hasSelectedConfigInList;
+    final displayedConfigs = shouldReorderActiveConfig
+        ? _configsWithActiveFirstWithinProtocol(protocolOrderedConfigs)
+        : protocolOrderedConfigs;
+    final displayEntries = _buildImportedConfigListEntries(displayedConfigs);
+
+    double displayEntryExtent(_ImportedConfigListEntry entry) {
+      if (entry.isSection) {
+        return _configProtocolSectionHeight;
+      }
+
+      return configItemExtentForPath(entry.configFile.path);
+    }
+
+    final totalEntriesHeight = displayEntries.fold<double>(
       0.0,
-      (sum, file) => sum + configDateExtraHeightForPath(file.path),
+      (sum, entry) => sum + displayEntryExtent(entry),
     );
     final totalContentHeight =
-        (displayedConfigs.length * _mainActionButtonHeight) +
-        ((displayedConfigs.isNotEmpty ? displayedConfigs.length - 1 : 0) *
+        totalEntriesHeight +
+        ((displayEntries.isNotEmpty ? displayEntries.length - 1 : 0) *
             configItemSpacing) +
-        totalDateExtraHeight +
         listTopPadding +
         listBottomPadding;
     final shouldShowBottomShadow = totalContentHeight > viewportHeight;
-    final selectedConfigMoveExtent = hasSelectedConfigInList
-        ? configItemExtentForPath(_selectedConf!.path)
-        : 0.0;
+    var activeConfigScrollOffset = 0.0;
+    if (shouldReorderActiveConfig && _selectedConf != null) {
+      var entryOffset = listTopPadding;
+      for (final entry in displayEntries) {
+        if (!entry.isSection && entry.configFile.path == _selectedConf!.path) {
+          activeConfigScrollOffset = entryOffset;
+          break;
+        }
+
+        entryOffset += displayEntryExtent(entry) + configItemSpacing;
+      }
+    }
+    _syncConfigListScrollForActiveTunnel(
+      shouldReorderActiveConfig,
+      targetOffset: activeConfigScrollOffset,
+    );
 
     return Stack(
       children: [
@@ -2598,10 +2810,19 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             16,
             listBottomPadding,
           ),
-          itemCount: displayedConfigs.length,
+          itemCount: displayEntries.length,
           separatorBuilder: (context, index) => const SizedBox(height: 4),
           itemBuilder: (context, index) {
-            final file = displayedConfigs[index];
+            final entry = displayEntries[index];
+            if (entry.isSection) {
+              return _buildConfigProtocolSectionLabel(
+                label: entry.sectionLabel!,
+                colorScheme: colorScheme,
+                textTheme: textTheme,
+              );
+            }
+
+            final file = entry.configFile;
             final isSelected = _selectedConf?.path == file.path;
             final isPinned = _pinnedConfigPaths.contains(file.path);
             final isInactiveWhileConnected =
@@ -2646,29 +2867,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                 : (_isConnected
                       ? DismissDirection.startToEnd
                       : DismissDirection.horizontal);
-            final originalIndex = _importedConfigs.indexWhere(
-              (config) => config.path == file.path,
-            );
-            final moveOffset =
-                !isReorderedForActiveTunnel || selectedOriginalIndex <= 0
-                ? 0.0
-                : isSelected
-                ? _importedConfigs
-                      .take(selectedOriginalIndex)
-                      .fold<double>(
-                        0.0,
-                        (sum, config) =>
-                            sum + configItemExtentForPath(config.path),
-                      )
-                : (originalIndex >= 0 && originalIndex < selectedOriginalIndex
-                      ? -selectedConfigMoveExtent
-                      : 0.0);
-
             return TweenAnimationBuilder<double>(
               key: ValueKey(
-                '${file.path}-${isReorderedForActiveTunnel ? 'reordered' : 'normal'}',
+                '${file.path}-${shouldReorderActiveConfig ? 'reordered' : 'normal'}',
               ),
-              tween: Tween<double>(begin: moveOffset, end: 0),
+              tween: Tween<double>(begin: 0, end: 0),
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeInOut,
               builder: (context, offset, child) =>
@@ -2977,7 +3180,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final connectButtonForegroundColor = showActiveTunnelUi
         ? Colors.white
         : (isDark ? Colors.white : Colors.white);
-    final showAppBarNotice = _floatingNoticeText != null;
     const connectionAnimDuration = Duration(milliseconds: 500);
     const connectionAnimCurve = Curves.fastOutSlowIn;
     const defaultConfigsListHeightFactor = 1.0;
@@ -2985,8 +3187,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final connectBlockedBySelection = selectionWarningText != null;
     final canConnect =
         _selectedConf != null && hasValidConf && !connectBlockedBySelection;
+    final connectButtonBusy = _isConnecting || _isWaitingForTunnelTraffic;
+    final showConnectButtonSpinner =
+        (!_isConnected && _isConnecting) || _isWaitingForTunnelTraffic;
     final connectButtonOpacity =
-        !_isConnected && !_isConnecting && connectBlockedBySelection
+        !_isConnected && !connectButtonBusy && connectBlockedBySelection
         ? 0.5
         : 1.0;
     final actionInfoText = selectionWarningText;
@@ -3049,88 +3254,76 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       value: systemUiOverlayStyle,
       child: Scaffold(
         appBar: AppBar(
-          automaticallyImplyLeading: !showAppBarNotice,
-          title: showAppBarNotice
-              ? null
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(width: 30, height: 30, child: _buildVpnfyImage()),
-                    const SizedBox(width: 10),
-                    Text(
-                      l10n.appTitle,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ],
-                ),
-          actions: showAppBarNotice
-              ? const []
-              : [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 16),
-                    child: Tooltip(
-                      message: l10n.splitTunneling,
-                      child: SizedBox.square(
-                        dimension: 36,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? darkButtonBackgroundColor
-                                : Colors.white,
-                            borderRadius: const BorderRadius.all(
-                              Radius.circular(_elementBorderRadius),
-                            ),
-                            boxShadow: isDark
-                                ? null
-                                : const [
-                                    BoxShadow(
-                                      color: Color.fromRGBO(0, 0, 0, 0.20),
-                                      blurRadius: 8,
-                                      spreadRadius: 0,
-                                      offset: Offset(0, 2),
-                                    ),
-                                  ],
-                          ),
-                          child: Material(
-                            color: isDark
-                                ? darkButtonBackgroundColor
-                                : Colors.white,
-                            borderRadius: const BorderRadius.all(
-                              Radius.circular(_elementBorderRadius),
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child: InkWell(
-                              onTap: () {
-                                Navigator.of(context)
-                                    .push(
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            SplitTunnelSettingsPage(
-                                              isVpnConnected: () =>
-                                                  _isConnected,
-                                            ),
-                                      ),
-                                    )
-                                    .then((_) {
-                                      _refreshSplitTunnelSelections();
-                                      _refreshTunnelStatus();
-                                    });
-                              },
-                              child: Center(
-                                child: Icon(
-                                  Icons.tune,
-                                  size: 24,
-                                  color: isDark ? Colors.white : Colors.black87,
-                                ),
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(width: 30, height: 30, child: _buildVpnfyImage()),
+              const SizedBox(width: 10),
+              Text(
+                l10n.appTitle,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Tooltip(
+                message: l10n.splitTunneling,
+                child: SizedBox.square(
+                  dimension: 36,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: isDark ? darkButtonBackgroundColor : Colors.white,
+                      borderRadius: const BorderRadius.all(
+                        Radius.circular(_elementBorderRadius),
+                      ),
+                      boxShadow: isDark
+                          ? null
+                          : const [
+                              BoxShadow(
+                                color: Color.fromRGBO(0, 0, 0, 0.20),
+                                blurRadius: 8,
+                                spreadRadius: 0,
+                                offset: Offset(0, 2),
                               ),
-                            ),
+                            ],
+                    ),
+                    child: Material(
+                      color: isDark ? darkButtonBackgroundColor : Colors.white,
+                      borderRadius: const BorderRadius.all(
+                        Radius.circular(_elementBorderRadius),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.of(context)
+                              .push(
+                                MaterialPageRoute(
+                                  builder: (context) => SplitTunnelSettingsPage(
+                                    isVpnConnected: () => _isConnected,
+                                  ),
+                                ),
+                              )
+                              .then((_) {
+                                _refreshSplitTunnelSelections();
+                                _refreshTunnelStatus();
+                              });
+                        },
+                        child: Center(
+                          child: Icon(
+                            Icons.tune,
+                            size: 24,
+                            color: isDark ? Colors.white : Colors.black87,
                           ),
                         ),
                       ),
                     ),
                   ),
-                ],
-          flexibleSpace: _buildAppBarNoticeOverlay(),
+                ),
+              ),
+            ),
+          ],
         ),
         body: Padding(
           padding: const EdgeInsets.only(top: 16, bottom: 16),
@@ -3312,12 +3505,14 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                             foregroundColor:
                                                 connectButtonForegroundColor,
                                             disabledBackgroundColor:
-                                                connectBlockedBySelection
+                                                connectBlockedBySelection ||
+                                                    connectButtonBusy
                                                 ? connectButtonBackgroundColor
                                                 : connectButtonBackgroundColor
                                                       .withValues(alpha: 0.24),
                                             disabledForegroundColor:
-                                                connectBlockedBySelection
+                                                connectBlockedBySelection ||
+                                                    connectButtonBusy
                                                 ? connectButtonForegroundColor
                                                 : connectButtonForegroundColor
                                                       .withValues(alpha: 0.45),
@@ -3325,21 +3520,51 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                             shape: actionButtonShape,
                                             textStyle: actionButtonTextStyle,
                                           ),
-                                          onPressed: _isConnecting
+                                          onPressed: connectButtonBusy
                                               ? null
                                               : (_isConnected
                                                     ? _disconnectWireGuard
                                                     : (canConnect
                                                           ? _connectWireGuard
                                                           : null)),
-                                          child: Text(
-                                            _isConnected
-                                                ? '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}'
-                                                : l10n.connect,
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w700,
+                                          child: AnimatedSwitcher(
+                                            duration: const Duration(
+                                              milliseconds: 180,
                                             ),
+                                            switchInCurve: Curves.easeOutCubic,
+                                            switchOutCurve: Curves.easeInCubic,
+                                            child: showConnectButtonSpinner
+                                                ? SizedBox(
+                                                    key: const ValueKey(
+                                                      'connect-spinner',
+                                                    ),
+                                                    width: 22,
+                                                    height: 22,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2.4,
+                                                      valueColor:
+                                                          AlwaysStoppedAnimation<
+                                                            Color
+                                                          >(
+                                                            connectButtonForegroundColor,
+                                                          ),
+                                                    ),
+                                                  )
+                                                : Text(
+                                                    key: ValueKey(
+                                                      _isConnected
+                                                          ? 'connected-label'
+                                                          : 'connect-label',
+                                                    ),
+                                                    _isConnected
+                                                        ? '${_formatUptime()} / ${_formatBytes(_rxBytes + _txBytes)}'
+                                                        : l10n.connect,
+                                                    style: const TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
                                           ),
                                         ),
                                       ),

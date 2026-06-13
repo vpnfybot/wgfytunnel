@@ -7,8 +7,8 @@ import android.net.VpnService
 import android.os.Build
 import android.os.SystemClock
 import android.service.quicksettings.TileService
-import com.wireguard.android.backend.Tunnel
-import com.wireguard.config.Config
+import org.amnezia.awg.backend.Tunnel
+import org.amnezia.awg.config.Config
 import org.json.JSONArray
 import org.json.JSONObject
 

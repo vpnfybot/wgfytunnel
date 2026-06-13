@@ -89,7 +89,7 @@ class AppLocalizations {
 
   String get importedConfigs => _get('Импортированные конфигурации');
   String get noImportedConfigs => _get('Конфигурации еще не импортированы');
-  String get importOrScanWireGuardConfig => _get('Импортируйте или отсканируйте конфигурацию WireGuard');
+  String get importOrScanWireGuardConfig => _get('Импортируйте или отсканируйте конфигурацию WireGuard / AmneziaWG');
   String get pinConfig => _get('Закрепить');
   String get unpinConfig => _get('Открепить');
   String get noFileSelected => _get('Файл не выбран');
@@ -154,7 +154,7 @@ class AppLocalizations {
   String get configRenameExists => _get('Конфигурация с таким именем уже существует');
   String get configRenameFailed => _get('Не удалось переименовать конфигурацию');
   String get configSaveFailed => _get('Не удалось сохранить изменения конфигурации');
-  String get invalidConfig => _get('Некорректная конфигурация WireGuard');
+  String get invalidConfig => _get('Некорректная конфигурация WireGuard / AmneziaWG');
   String get failedParseConfig => _get('Не удалось разобрать конфигурацию');
   String get failedStartTunnel => _get('Не удалось запустить туннель');
   String get failedStopTunnel => _get('Не удалось остановить туннель');
@@ -187,7 +187,7 @@ class AppLocalizations {
     'В этой сборке используются сторонние компоненты с открытыми лицензиями. Ниже перечислены основные встроенные и подключенные библиотеки, влияющие на работу VPN.',
   );
   String get aboutLicensesFooter => _get(
-    'Полные тексты лицензий Flutter и подключенных Dart-пакетов можно открыть отдельной кнопкой.',
+    'Полные тексты лицензий Flutter, Dart-пакетов, нативных Android-компонентов, встроенных GPL-компонентов и web-ассетов можно открыть отдельной кнопкой.',
   );
   String get componentUsageLabel => _get('Использование');
   String get componentAuthorLabel => _get('Автор / правообладатель');
@@ -200,7 +200,7 @@ class AppLocalizations {
     'Локальная интеграция libcore/NEKOBOX для запуска встроенного сетевого ядра.',
   );
   String get aboutWireGuardUsage => _get(
-    'Android-библиотека, через которую приложение поднимает WireGuard-туннель.',
+    'Android-библиотека, через которую приложение поднимает WireGuard и AmneziaWG-туннели.',
   );
 
   String translateRuntimeMessage(String text) {
@@ -357,8 +357,8 @@ class AppLocalizations {
         return 'Imported configurations';
       case 'Конфигурации еще не импортированы':
         return 'No imported configurations yet';
-      case 'Импортируйте или отсканируйте конфигурацию WireGuard':
-        return 'Import or scan a WireGuard configuration';
+      case 'Импортируйте или отсканируйте конфигурацию WireGuard / AmneziaWG':
+        return 'Import or scan a WireGuard / AmneziaWG configuration';
       case 'Закрепить':
         return 'Pin';
       case 'Открепить':
@@ -473,8 +473,8 @@ class AppLocalizations {
         return 'Failed to rename the configuration';
       case 'Не удалось сохранить изменения конфигурации':
         return 'Failed to save configuration changes';
-      case 'Некорректная конфигурация WireGuard':
-        return 'Invalid WireGuard configuration';
+      case 'Некорректная конфигурация WireGuard / AmneziaWG':
+        return 'Invalid WireGuard / AmneziaWG configuration';
       case 'Не удалось разобрать конфигурацию':
         return 'Failed to parse configuration';
       case 'Не удалось запустить туннель':
@@ -511,8 +511,8 @@ class AppLocalizations {
         return 'About';
       case 'В этой сборке используются сторонние компоненты с открытыми лицензиями. Ниже перечислены основные встроенные и подключенные библиотеки, влияющие на работу VPN.':
         return 'This build uses third-party open-source components. The main bundled and linked libraries that affect the VPN functionality are listed below.';
-      case 'Полные тексты лицензий Flutter и подключенных Dart-пакетов можно открыть отдельной кнопкой.':
-        return 'You can open the full license texts for Flutter and the bundled Dart packages with the separate button.';
+      case 'Полные тексты лицензий Flutter, Dart-пакетов, нативных Android-компонентов, встроенных GPL-компонентов и web-ассетов можно открыть отдельной кнопкой.':
+        return 'You can open the full license texts for Flutter, Dart packages, native Android components, bundled GPL components, and web assets with the separate button.';
       case 'Использование':
         return 'Usage';
       case 'Автор / правообладатель':
@@ -525,8 +525,8 @@ class AppLocalizations {
         return 'Embedded runtime used for domain routing and VPN scenarios based on sing-box.';
       case 'Локальная интеграция libcore/NEKOBOX для запуска встроенного сетевого ядра.':
         return 'Local libcore/NEKOBOX integration used to run the embedded networking core.';
-      case 'Android-библиотека, через которую приложение поднимает WireGuard-туннель.':
-        return 'Android library used by the app to bring up the WireGuard tunnel.';
+      case 'Android-библиотека, через которую приложение поднимает WireGuard и AmneziaWG-туннели.':
+        return 'Android library used by the app to bring up WireGuard and AmneziaWG tunnels.';
       default:
         return ruText;
     }

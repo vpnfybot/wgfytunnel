@@ -1,0 +1,27 @@
+wgfytunnel Android native dependency notice
+
+This Android build links or bundles native and Android runtime dependencies
+used by the VPN, scanning, background work, storage, and platform integration
+features. The runtime classpath includes, among others:
+
+- com.zaneschepke:amneziawg-android
+- com.zaneschepke:hevtunnel
+- AndroidX libraries, including annotation, collection, core, datastore,
+  lifecycle, work-runtime, appcompat, documentfile, fragment, loader,
+  localbroadcastmanager, print, recyclerview, startup, tracing, window, and
+  exifinterface
+- Kotlin standard library, Kotlin parcelize runtime, and kotlinx-coroutines
+- OkHttp and Okio
+- ReLinker
+- Flutter Android embedding and Android implementations of Flutter plugins
+- Google ML Kit / Play services dependencies used by QR scanning where
+  applicable
+
+Unless a component-specific notice says otherwise, the open-source Android
+libraries listed above are distributed under permissive open-source licenses,
+most commonly Apache License 2.0. The full Apache License 2.0 text is bundled
+as a separate license entry.
+
+Google ML Kit, Google Play services, and Android SDK components are governed
+by Google's applicable SDK and service terms in addition to any open-source
+notices for their transitive dependencies.

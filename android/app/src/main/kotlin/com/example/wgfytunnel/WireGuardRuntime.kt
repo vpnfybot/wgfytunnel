@@ -1,8 +1,9 @@
 package com.example.wgfytunnel
 
 import android.content.Context
-import com.wireguard.android.backend.GoBackend
-import com.wireguard.android.backend.Tunnel
+import org.amnezia.awg.backend.GoBackend
+import org.amnezia.awg.backend.NoopTunnelActionHandler
+import org.amnezia.awg.backend.Tunnel
 
 object WireGuardRuntime {
     private val initLock = Any()
@@ -28,7 +29,7 @@ object WireGuardRuntime {
                 return
             }
 
-            backend = GoBackend(context.applicationContext)
+            backend = GoBackend(context.applicationContext, NoopTunnelActionHandler())
             initialized = true
         }
     }
@@ -44,4 +45,8 @@ class AppTunnel(private val tunnelName: String) : Tunnel {
     override fun onStateChange(newState: Tunnel.State) {
         state = newState
     }
+
+    override fun isIpv4ResolutionPreferred(): Boolean = false
+
+    override fun isMetered(): Boolean = false
 }

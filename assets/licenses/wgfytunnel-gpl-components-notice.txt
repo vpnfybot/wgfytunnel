@@ -1,0 +1,28 @@
+wgfytunnel GPL component notice
+
+This application bundles or links components that are marked as
+GPL-3.0-or-later:
+
+- sing-box runtime and related sing-box assets.
+- NEKOBOX / libcore integration.
+- sing-geoip database asset when distributed as
+  android/app/src/main/assets/sing-box/geoip.db.xz.
+- sing-geosite database asset when distributed as
+  android/app/src/main/assets/sing-box/geosite.db.xz.
+
+The GNU GPL requires that recipients receive the same license terms. When
+object code is conveyed, the distributor must also provide the Corresponding
+Source in one of the ways permitted by GPL version 3 section 6. Keep this
+notice, the upstream copyright notices, and the full GNU GPL version 3 text
+with app distributions.
+
+Upstream source locations:
+
+- sing-box: https://github.com/SagerNet/sing-box
+- NEKOBOX: https://github.com/MatsuriDayo/NekoBoxForAndroid
+- sing-geoip: https://github.com/SagerNet/sing-geoip
+- sing-geosite: https://github.com/SagerNet/sing-geosite
+
+This notice is intended to make the GPL-covered parts visible in the in-app
+license screen. It is not a replacement for providing Corresponding Source
+when distributing binaries.

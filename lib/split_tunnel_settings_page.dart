@@ -51,10 +51,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   bool _isUpdatingNotificationsPermission = false;
   bool _showReconnectBanner = false;
   Timer? _reconnectBannerTimer;
-  Timer? _floatingNoticeTimer;
-  String? _floatingNoticeText;
-  bool _floatingNoticeIsError = false;
-  IconData? _floatingNoticeIcon;
   Completer<void>? _appsLoadCompleter;
 
   @override
@@ -68,7 +64,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   @override
   void dispose() {
     _reconnectBannerTimer?.cancel();
-    _clearFloatingNotice();
     _appSearchController.dispose();
     _domainInputController.dispose();
     super.dispose();
@@ -194,9 +189,9 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                             ),
                             _buildAboutComponentSection(
                               pageContext,
-                              title: 'WireGuard Tunnel Library',
+                              title: 'AmneziaWG Tunnel Library',
                               usage: l10n.aboutWireGuardUsage,
-                              author: 'WireGuard (team@wireguard.com)',
+                              author: 'AmneziaWG / Zane Schepke',
                               license: 'Apache License 2.0',
                             ),
                             const SizedBox(height: 8),
@@ -341,123 +336,51 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       unawaited(AppLogService.logError(text, origin: 'settings_ui'));
     }
 
-    _floatingNoticeTimer?.cancel();
-    setState(() {
-      _floatingNoticeText = text;
-      _floatingNoticeIsError = isError;
-      _floatingNoticeIcon = icon;
-    });
-    _floatingNoticeTimer = Timer(const Duration(seconds: 4), () {
-      if (!mounted) {
-        return;
-      }
-      _clearFloatingNotice();
-    });
-  }
-
-  void _clearFloatingNotice() {
-    _floatingNoticeTimer?.cancel();
-    _floatingNoticeTimer = null;
-    if (!mounted) {
-      _floatingNoticeText = null;
-      _floatingNoticeIsError = false;
-      _floatingNoticeIcon = null;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final backgroundColor = isError
+        ? theme.colorScheme.error
+        : (isDark ? Colors.white : Colors.black);
+    final foregroundColor = isError
+        ? theme.colorScheme.onError
+        : (isDark ? Colors.black : Colors.white);
+    final messenger =
+        _scaffoldMessengerKey.currentState ?? ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) {
       return;
     }
 
-    setState(() {
-      _floatingNoticeText = null;
-      _floatingNoticeIsError = false;
-      _floatingNoticeIcon = null;
-    });
-  }
-
-  Widget _buildAppBarNoticeOverlay() {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final isVisible = _floatingNoticeText != null;
-    final backgroundColor = isDark ? Colors.white : Colors.black;
-    final foregroundColor = isDark ? Colors.black : Colors.white;
-    return IgnorePointer(
-      ignoring: !isVisible,
-      child: ClipRect(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 320),
-          reverseDuration: const Duration(milliseconds: 220),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) {
-            final curvedAnimation = CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutCubic,
-              reverseCurve: Curves.easeInCubic,
-            );
-            return FadeTransition(
-              opacity: curvedAnimation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, -1),
-                  end: Offset.zero,
-                ).animate(curvedAnimation),
-                child: child,
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: backgroundColor,
+          margin: EdgeInsets.fromLTRB(
+            16,
+            0,
+            16,
+            16 + MediaQuery.paddingOf(context).bottom,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_settingsBlockRadius),
+          ),
+          duration: const Duration(seconds: 4),
+          content: SizedBox(
+            width: double.infinity,
+            child: Text(
+              text,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: foregroundColor,
+                fontWeight: FontWeight.w700,
               ),
-            );
-          },
-          child: !isVisible
-              ? const SizedBox.shrink(
-                  key: ValueKey<String>('hidden-settings-notice-overlay'),
-                )
-              : SizedBox.expand(
-                  key: ValueKey<String>(
-                    'visible-settings-notice-overlay-${_floatingNoticeText!}-$_floatingNoticeIsError-$_floatingNoticeIcon',
-                  ),
-                  child: Dismissible(
-                    key: ValueKey<String>(
-                      'dismissible-settings-notice-${_floatingNoticeText!}-$_floatingNoticeIsError-$_floatingNoticeIcon',
-                    ),
-                    direction: DismissDirection.up,
-                    resizeDuration: null,
-                    movementDuration: const Duration(milliseconds: 220),
-                    onDismissed: (_) => _clearFloatingNotice(),
-                    child: Material(
-                      color: backgroundColor,
-                      child: SafeArea(
-                        bottom: false,
-                        child: SizedBox(
-                          height: kToolbarHeight,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                    ),
-                                    child: Text(
-                                      _floatingNoticeText ?? '',
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.center,
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            color: foregroundColor,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+            ),
+          ),
         ),
-      ),
-    );
+      );
   }
 
   void _hideReconnectBanner() {
@@ -2017,7 +1940,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     final notificationsActionColor = _notificationsEnabled == false
         ? theme.colorScheme.error
         : null;
-    final showAppBarNotice = _floatingNoticeText != null;
 
     if (_isLoadingPrefs) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -2026,36 +1948,30 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       key: _scaffoldMessengerKey,
       child: Scaffold(
         appBar: AppBar(
-          automaticallyImplyLeading: !showAppBarNotice,
-          title: showAppBarNotice ? null : Text(l10n.settingsTitle),
-          actions: showAppBarNotice
-              ? const []
-              : [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Tooltip(
-                      message: notificationsActionTooltip,
-                      child: IconButton(
-                        onPressed: _isUpdatingNotificationsPermission
-                            ? null
-                            : _handleNotificationsPermissionAction,
-                        icon: _isUpdatingNotificationsPermission
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : Icon(
-                                notificationsActionIcon,
-                                color: notificationsActionColor,
-                              ),
-                      ),
-                    ),
-                  ),
-                ],
-          flexibleSpace: _buildAppBarNoticeOverlay(),
+          title: Text(l10n.settingsTitle),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Tooltip(
+                message: notificationsActionTooltip,
+                child: IconButton(
+                  onPressed: _isUpdatingNotificationsPermission
+                      ? null
+                      : _handleNotificationsPermissionAction,
+                  icon: _isUpdatingNotificationsPermission
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          notificationsActionIcon,
+                          color: notificationsActionColor,
+                        ),
+                ),
+              ),
+            ),
+          ],
         ),
         body: SafeArea(
           top: false,
@@ -2209,6 +2125,16 @@ class _LicensePackageGroup {
   final List<LicenseEntry> entries;
 }
 
+class _BundledLicenseAsset {
+  const _BundledLicenseAsset({
+    required this.packageName,
+    required this.assetPath,
+  });
+
+  final String packageName;
+  final String assetPath;
+}
+
 class _FullLicensesPage extends StatefulWidget {
   const _FullLicensesPage();
 
@@ -2217,11 +2143,72 @@ class _FullLicensesPage extends StatefulWidget {
 }
 
 class _FullLicensesPageState extends State<_FullLicensesPage> {
+  static const List<_BundledLicenseAsset> _bundledLicenseAssets = [
+    _BundledLicenseAsset(
+      packageName: 'wgfytunnel GPL component notice',
+      assetPath: 'assets/licenses/wgfytunnel-gpl-components-notice.txt',
+    ),
+    _BundledLicenseAsset(
+      packageName: 'sing-box',
+      assetPath: 'assets/licenses/sing-box-notice.txt',
+    ),
+    _BundledLicenseAsset(
+      packageName: 'NEKOBOX',
+      assetPath: 'assets/licenses/nekobox-notice.txt',
+    ),
+    _BundledLicenseAsset(
+      packageName: 'NEKOBOX libcore',
+      assetPath: 'assets/licenses/nekobox-libcore-notice.txt',
+    ),
+    _BundledLicenseAsset(
+      packageName: 'GNU General Public License v3.0',
+      assetPath: 'assets/licenses/gpl-3.0.txt',
+    ),
+    _BundledLicenseAsset(
+      packageName: 'wgfytunnel Android native dependency notice',
+      assetPath: 'assets/licenses/wgfytunnel-android-native-notices.txt',
+    ),
+    _BundledLicenseAsset(
+      packageName: 'Google SDK and service terms notice',
+      assetPath: 'assets/licenses/wgfytunnel-google-sdk-notice.txt',
+    ),
+    _BundledLicenseAsset(
+      packageName: 'Apache License 2.0',
+      assetPath: 'assets/licenses/apache-2.0.txt',
+    ),
+    _BundledLicenseAsset(
+      packageName: 'Yacd-meta dashboard notice',
+      assetPath: 'assets/licenses/wgfytunnel-yacd-notice.txt',
+    ),
+    _BundledLicenseAsset(
+      packageName: 'MIT License',
+      assetPath: 'assets/licenses/mit.txt',
+    ),
+    _BundledLicenseAsset(
+      packageName: 'SIL Open Font License 1.1',
+      assetPath: 'assets/licenses/ofl-1.1.txt',
+    ),
+  ];
+
   late final Future<List<_LicensePackageGroup>> _licenseGroupsFuture =
       _loadLicenseGroups();
 
   Future<List<_LicensePackageGroup>> _loadLicenseGroups() async {
     final groupedEntries = <String, List<LicenseEntry>>{};
+
+    for (final bundledLicense in _bundledLicenseAssets) {
+      final licenseText = await rootBundle.loadString(
+        bundledLicense.assetPath,
+      );
+      groupedEntries
+          .putIfAbsent(bundledLicense.packageName, () => <LicenseEntry>[])
+          .add(
+            LicenseEntryWithLineBreaks(
+              <String>[bundledLicense.packageName],
+              licenseText,
+            ),
+          );
+    }
 
     await for (final entry in LicenseRegistry.licenses) {
       for (final packageName in entry.packages) {

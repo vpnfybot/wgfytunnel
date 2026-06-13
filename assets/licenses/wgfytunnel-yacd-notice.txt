@@ -1,0 +1,19 @@
+wgfytunnel Yacd-meta dashboard notice
+
+This application bundles a static dashboard archive at
+android/app/src/main/assets/yacd.zip. The archive contents identify the
+dashboard as Yacd-meta. The upstream package metadata for MetaCubeX/Yacd-meta
+declares the MIT license.
+
+The dashboard bundle also contains frontend dependencies and web font assets.
+Font files visible in the archive include Inter and Roboto Mono web fonts.
+The MIT License, Apache License 2.0, and SIL Open Font License 1.1 texts are
+bundled as separate entries in this license screen for the dashboard and its
+web/font assets.
+
+Upstream source location:
+
+- Yacd-meta: https://github.com/MetaCubeX/Yacd-meta
+
+When replacing android/app/src/main/assets/yacd.zip, regenerate or review this
+notice against the new dashboard package metadata and bundled assets.

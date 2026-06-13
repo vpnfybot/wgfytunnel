@@ -1,0 +1,16 @@
+wgfytunnel Google SDK and service terms notice
+
+This application uses Android dependencies that may include Google ML Kit,
+Google Play services, Google APIs, and Android SDK components for QR scanning
+and Android platform integration.
+
+These components are governed by Google's applicable SDK, ML Kit, Google APIs,
+and Google Play terms rather than by this application's own license. Keep this
+notice and review the current Google terms before distribution:
+
+- Android SDK License Agreement:
+  https://developer.android.com/studio/terms
+- ML Kit Terms:
+  https://developers.google.com/ml-kit/terms
+- Google Play services open-source notices tooling:
+  https://developers.google.com/android/guides/opensource
