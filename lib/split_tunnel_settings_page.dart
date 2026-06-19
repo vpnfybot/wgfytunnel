@@ -345,7 +345,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
         ? theme.colorScheme.onError
         : (isDark ? Colors.black : Colors.white);
     final messenger =
-        _scaffoldMessengerKey.currentState ?? ScaffoldMessenger.maybeOf(context);
+        _scaffoldMessengerKey.currentState ??
+        ScaffoldMessenger.maybeOf(context);
     if (messenger == null) {
       return;
     }
@@ -506,6 +507,17 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     return '$label (${_domainList.length})';
   }
 
+  String _selectAppsTitle(AppLocalizations l10n) {
+    return '${l10n.selectApps} (${_selectedPackages.length})';
+  }
+
+  String _domainsPickerTitle(AppLocalizations l10n) {
+    final title = _domainMode == SplitTunnelDomainMode.exclude
+        ? l10n.excludedSites
+        : l10n.addedSites;
+    return '$title (${_domainList.length})';
+  }
+
   Future<T?> _showSelectionSheet<T>({
     required String title,
     required T selected,
@@ -524,6 +536,14 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     selectionIndicatorShadowBuilder,
     double optionScale = 1.0,
     Duration? delayedCloseDuration,
+    bool closeOnSelection = true,
+    ValueChanged<T>? onSelectionChanged,
+    Widget? Function(
+      BuildContext context,
+      T currentSelection,
+      VoidCallback refreshSheet,
+    )?
+    footerBuilder,
   }) {
     return showModalBottomSheet<T>(
       context: context,
@@ -541,7 +561,16 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                 return;
               }
 
+              if (!closeOnSelection) {
+                modalSetState(() {
+                  currentSelection = value;
+                });
+                onSelectionChanged?.call(value);
+                return;
+              }
+
               if (delayedCloseDuration == null) {
+                onSelectionChanged?.call(value);
                 Navigator.of(sheetContext).pop(value);
                 return;
               }
@@ -550,6 +579,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
               modalSetState(() {
                 currentSelection = value;
               });
+              onSelectionChanged?.call(value);
 
               Future<void>.delayed(delayedCloseDuration).then((_) {
                 if (!sheetContext.mounted || requestId != closeRequestId) {
@@ -558,6 +588,16 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                 Navigator.of(sheetContext).pop(currentSelection);
               });
             }
+
+            void refreshSheet() {
+              modalSetState(() {});
+            }
+
+            final footer = footerBuilder?.call(
+              context,
+              currentSelection,
+              refreshSheet,
+            );
 
             return SafeArea(
               child: SingleChildScrollView(
@@ -606,6 +646,10 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                         if (index != values.length - 1)
                           const SizedBox(height: 12),
                       ],
+                      if (footer != null) ...[
+                        const SizedBox(height: 16),
+                        footer,
+                      ],
                     ],
                   ),
                 ),
@@ -651,9 +695,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       titleBuilder: (preference) => _themePreferenceLabel(l10n, preference),
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
       optionBorderBuilder: isDark
-          ? (_, isSelected, theme) => isSelected
-                ? null
-                : Border.all(color: const Color(0xFF282828))
+          ? (_, isSelected, theme) =>
+                isSelected ? null : Border.all(color: const Color(0xFF282828))
           : (_, isSelected, theme) => isSelected
                 ? null
                 : Border.all(color: theme.dividerColor.withValues(alpha: 0.14)),
@@ -681,7 +724,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   Future<void> _showSplitTunnelModeSheet() async {
     final l10n = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final selection = await _showSelectionSheet<SplitTunnelMode>(
+    await _showSelectionSheet<SplitTunnelMode>(
       title: l10n.tunnelMode,
       selected: _splitTunnelMode,
       values: SplitTunnelMode.values,
@@ -690,32 +733,36 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
           _localizedSplitTunnelModeDescription(l10n, mode),
       showSelectionIndicator: false,
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
+      closeOnSelection: false,
+      onSelectionChanged: (selection) {
+        setState(() {
+          _splitTunnelMode = selection;
+          if (selection == SplitTunnelMode.all) {
+            _selectedPackages = <String>{};
+            _appSearchQuery = '';
+            _appSearchController.clear();
+          }
+        });
+
+        if (selection != SplitTunnelMode.all) {
+          unawaited(_ensureInstalledAppsLoaded());
+        }
+
+        unawaited(_savePrefs());
+      },
+      footerBuilder: (context, selection, refreshSheet) {
+        if (selection == SplitTunnelMode.all) {
+          return null;
+        }
+        return _buildAppsSection(onSelectionChanged: refreshSheet);
+      },
     );
-
-    if (!mounted || selection == null || selection == _splitTunnelMode) {
-      return;
-    }
-
-    setState(() {
-      _splitTunnelMode = selection;
-      if (selection == SplitTunnelMode.all) {
-        _selectedPackages = <String>{};
-        _appSearchQuery = '';
-        _appSearchController.clear();
-      }
-    });
-
-    if (selection != SplitTunnelMode.all) {
-      _ensureInstalledAppsLoaded();
-    }
-
-    await _savePrefs();
   }
 
   Future<void> _showDomainModeSheet() async {
     final l10n = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final selection = await _showSelectionSheet<SplitTunnelDomainMode>(
+    await _showSelectionSheet<SplitTunnelDomainMode>(
       title: l10n.domainMode,
       selected: _domainMode,
       values: SplitTunnelDomainMode.values,
@@ -724,20 +771,24 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
           _localizedSplitTunnelDomainModeDescription(l10n, mode),
       showSelectionIndicator: false,
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
+      closeOnSelection: false,
+      onSelectionChanged: (selection) {
+        setState(() {
+          _domainMode = selection;
+          if (selection == SplitTunnelDomainMode.all) {
+            _domainInputController.clear();
+          }
+        });
+
+        unawaited(_savePrefs());
+      },
+      footerBuilder: (context, selection, refreshSheet) {
+        if (selection == SplitTunnelDomainMode.all) {
+          return null;
+        }
+        return _buildDomainsSection(onSelectionChanged: refreshSheet);
+      },
     );
-
-    if (!mounted || selection == null || selection == _domainMode) {
-      return;
-    }
-
-    setState(() {
-      _domainMode = selection;
-      if (selection == SplitTunnelDomainMode.all) {
-        _domainInputController.clear();
-      }
-    });
-
-    await _savePrefs();
   }
 
   Widget _buildSheetOption<T>({
@@ -1290,7 +1341,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     unawaited(_savePrefs());
   }
 
-  Future<void> _showAppsPickerSheet() async {
+  Future<void> _showAppsPickerSheet({VoidCallback? onSelectionChanged}) async {
     final l10n = AppLocalizations.of(context);
     await _ensureInstalledAppsLoaded();
     if (!mounted) {
@@ -1330,6 +1381,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                 );
                 _togglePackageSelection(packageName);
                 modalSetState(() {});
+                onSelectionChanged?.call();
 
                 reorderTimers.remove(packageName)?.cancel();
                 reorderTimers[packageName] = Timer(reorderDelay, () {
@@ -1376,7 +1428,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Text(
-                                l10n.selectApps,
+                                _selectAppsTitle(l10n),
                                 style: theme.textTheme.titleLarge?.copyWith(
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -1475,11 +1527,10 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     }
   }
 
-  Future<void> _showDomainsPickerSheet() async {
+  Future<void> _showDomainsPickerSheet({
+    VoidCallback? onSelectionChanged,
+  }) async {
     final l10n = AppLocalizations.of(context);
-    final title = _domainMode == SplitTunnelDomainMode.exclude
-        ? l10n.excludedSites
-        : l10n.addedSites;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -1522,6 +1573,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                 _domainInputController.clear();
               });
               modalSetState(() {});
+              onSelectionChanged?.call();
               unawaited(_savePrefs());
             }
 
@@ -1530,6 +1582,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                 _domainList.remove(domain);
               });
               modalSetState(() {});
+              onSelectionChanged?.call();
               unawaited(_savePrefs());
             }
 
@@ -1547,7 +1600,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Text(
-                              title,
+                              _domainsPickerTitle(l10n),
                               style: theme.textTheme.titleLarge?.copyWith(
                                 fontWeight: FontWeight.w700,
                               ),
@@ -1890,27 +1943,28 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     );
   }
 
-  Widget _buildAppsSection() {
+  Widget _buildAppsSection({VoidCallback? onSelectionChanged}) {
     final l10n = AppLocalizations.of(context);
+    final title = _selectAppsTitle(l10n);
     return _buildPickerLauncherCard(
       icon: Icons.apps_rounded,
-      title: l10n.selectApps,
-      buttonLabel: l10n.selectApps,
-      onPressed: _showAppsPickerSheet,
+      title: title,
+      buttonLabel: title,
+      onPressed: () =>
+          _showAppsPickerSheet(onSelectionChanged: onSelectionChanged),
     );
   }
 
-  Widget _buildDomainsSection() {
+  Widget _buildDomainsSection({VoidCallback? onSelectionChanged}) {
     final l10n = AppLocalizations.of(context);
-    final title = _domainMode == SplitTunnelDomainMode.exclude
-        ? l10n.excludedSites
-        : l10n.addedSites;
+    final title = _domainsPickerTitle(l10n);
 
     return _buildPickerLauncherCard(
       icon: Icons.language_rounded,
       title: title,
       buttonLabel: l10n.selectSites,
-      onPressed: _showDomainsPickerSheet,
+      onPressed: () =>
+          _showDomainsPickerSheet(onSelectionChanged: onSelectionChanged),
     );
   }
 
@@ -1921,8 +1975,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     final themeService = Provider.of<ThemeService>(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final showAppsSection = _splitTunnelMode != SplitTunnelMode.all;
-    final showDomainsSection = _domainMode != SplitTunnelDomainMode.all;
     final showReconnectBanner = _showReconnectBanner && widget.isVpnConnected();
     final notificationsActionTooltip =
         defaultTargetPlatform != TargetPlatform.android
@@ -2061,18 +2113,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                       ),
                     ],
                   ),
-                  if (showAppsSection) ...[
-                    const SizedBox(height: 16),
-                    _buildSectionTitle(l10n.apps),
-                    const SizedBox(height: 12),
-                    _buildAppsSection(),
-                  ],
-                  if (showDomainsSection) ...[
-                    const SizedBox(height: 16),
-                    _buildSectionTitle(l10n.sites),
-                    const SizedBox(height: 12),
-                    _buildDomainsSection(),
-                  ],
                   const SizedBox(height: 16),
                   _buildSectionTitle(l10n.otherSection),
                   const SizedBox(height: 12),
@@ -2197,16 +2237,13 @@ class _FullLicensesPageState extends State<_FullLicensesPage> {
     final groupedEntries = <String, List<LicenseEntry>>{};
 
     for (final bundledLicense in _bundledLicenseAssets) {
-      final licenseText = await rootBundle.loadString(
-        bundledLicense.assetPath,
-      );
+      final licenseText = await rootBundle.loadString(bundledLicense.assetPath);
       groupedEntries
           .putIfAbsent(bundledLicense.packageName, () => <LicenseEntry>[])
           .add(
-            LicenseEntryWithLineBreaks(
-              <String>[bundledLicense.packageName],
-              licenseText,
-            ),
+            LicenseEntryWithLineBreaks(<String>[
+              bundledLicense.packageName,
+            ], licenseText),
           );
     }
 

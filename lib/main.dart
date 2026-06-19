@@ -699,23 +699,22 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       <String, EndpointCountryInfo?>{};
   Set<String> _countryLookupsInFlight = <String>{};
   Timer? _subscriptionsRefreshTimer;
+  Future<void>? _subscriptionsRefreshInFlight;
   final ScrollController _configsListScrollController = ScrollController();
   bool _wasConfigListReorderedForActiveTunnel = false;
   double? _lastConfigListActiveScrollTarget;
-  Set<String> _configPathsBeingUpdated = <String>{};
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_restoreStoredSubscriptionState());
-    _restoreImportedConfigs();
+    unawaited(_restoreImportedConfigs());
     _startSubscriptionsRefreshTimer();
     _refreshSplitTunnelSelections();
     _refreshTunnelStatus();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_checkForAppUpdateOnLaunch());
-      unawaited(_refreshSubscriptions(force: true));
     });
   }
 
@@ -754,17 +753,52 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Future<void> _refreshSubscriptions({bool force = false}) async {
     final shouldRefresh =
         force || await SubscriptionService.shouldRefreshSubscriptions();
-    if (shouldRefresh) {
-      final activeUntilByPath =
-          await SubscriptionService.refreshAllSubscriptions();
-      if (!mounted) {
+    if (!shouldRefresh) {
+      return;
+    }
+
+    final activeRefresh = _subscriptionsRefreshInFlight;
+    if (activeRefresh != null) {
+      await activeRefresh;
+      if (!force) {
         return;
       }
-
-      setState(() {
-        _configActiveUntilByPath = activeUntilByPath;
-      });
     }
+
+    final refresh = _refreshSubscriptionsNow();
+    _subscriptionsRefreshInFlight = refresh;
+    try {
+      await refresh;
+    } finally {
+      if (_subscriptionsRefreshInFlight == refresh) {
+        _subscriptionsRefreshInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _refreshSubscriptionsNow() async {
+    final Map<String, String> activeUntilByPath;
+    try {
+      activeUntilByPath = await SubscriptionService.refreshAllSubscriptions();
+    } catch (error, stackTrace) {
+      unawaited(
+        AppLogService.logError(
+          'Failed to refresh imported config subscriptions',
+          error: error,
+          stackTrace: stackTrace,
+          origin: 'subscription_refresh',
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _configActiveUntilByPath = activeUntilByPath;
+    });
   }
 
   void _syncConfigListScrollForActiveTunnel(
@@ -2009,6 +2043,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         endpointsByPath: endpointsByPath,
       ),
     );
+    unawaited(_refreshSubscriptions(force: true));
   }
 
   Future<void> _selectImportedConfig(File file) async {
@@ -2043,59 +2078,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     });
     unawaited(_queueCountryLookupsForConfigs([file]));
     await ImportedConfigsPrefs.saveSelectedPath(file.path);
-  }
-
-  Future<void> _sendSelectedConfigUpdate(File file) async {
-    if (_configPathsBeingUpdated.contains(file.path)) {
-      return;
-    }
-
-    final l10n = AppLocalizations.of(context);
-    final configName = _configName(file);
-
-    if (mounted) {
-      setState(() {
-        _configPathsBeingUpdated = <String>{
-          ..._configPathsBeingUpdated,
-          file.path,
-        };
-      });
-    }
-
-    try {
-      final result = await SubscriptionService.updateSubscriptionForPath(
-        file.path,
-      );
-      if (result.error != null) {
-        _showFloatingNotice(
-          l10n.configUpdateErrorMessage(configName),
-          isError: true,
-        );
-        return;
-      }
-
-      final activeUntilByPath =
-          await SubscriptionService.loadStoredActiveUntilByPath();
-      if (mounted) {
-        setState(() {
-          _configActiveUntilByPath = activeUntilByPath;
-        });
-      }
-
-      _showFloatingNotice(l10n.configUpdatedMessage(configName));
-    } catch (_) {
-      _showFloatingNotice(
-        l10n.configUpdateErrorMessage(configName),
-        isError: true,
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _configPathsBeingUpdated = <String>{..._configPathsBeingUpdated}
-            ..remove(file.path);
-        });
-      }
-    }
   }
 
   void _removeImportedConfig(File file) {
@@ -2376,6 +2358,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         ], endpointsByPath: updatedEndpointsByPath),
       );
       await _persistImportedConfigs(updatedConfigs, selectedConfig: file);
+      unawaited(_refreshSubscriptions(force: true));
     } catch (e) {
       _showMessage('Error importing file: $e');
     }
@@ -2494,6 +2477,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _isWaitingForTunnelTraffic = connected;
       });
       if (connected) {
+        unawaited(HapticFeedback.lightImpact());
         _startStatsPolling();
       } else {
         _stopStatsPolling();
@@ -2838,15 +2822,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             final itemForegroundColor = isDark
                 ? Colors.white
                 : colorScheme.onSurface;
-            final endpointColor = isDark
-                ? Colors.white
-                : colorScheme.onSurfaceVariant;
             final itemContentOpacity = isDark && isInactiveWhileConnected
                 ? 0.5
                 : 1.0;
-            final isUpdatingThisConfig = _configPathsBeingUpdated.contains(
-              file.path,
-            );
             final cardBackgroundColor = isDark
                 ? const Color(0xFF141414)
                 : (isInactiveWhileConnected
@@ -2862,11 +2840,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             final dismissibleBorderRadius = BorderRadius.circular(
               _elementBorderRadius,
             );
-            final dismissDirection = isInactiveWhileConnected
-                ? DismissDirection.none
-                : (_isConnected
-                      ? DismissDirection.startToEnd
-                      : DismissDirection.horizontal);
+            final canSwipeConfig = !isInactiveWhileConnected;
             return TweenAnimationBuilder<double>(
               key: ValueKey(
                 '${file.path}-${shouldReorderActiveConfig ? 'reordered' : 'normal'}',
@@ -2876,10 +2850,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
               curve: Curves.easeInOut,
               builder: (context, offset, child) =>
                   Transform.translate(offset: Offset(0, offset), child: child),
-              child: Dismissible(
+              child: _ConfigSwipeActionPane(
                 key: ValueKey(file.path),
-                direction: dismissDirection,
-                background: Container(
+                canSwipeStartToEnd: canSwipeConfig,
+                canSwipeEndToStart: canSwipeConfig && !_isConnected,
+                onStartToEndAction: () => _togglePinnedConfig(file),
+                onDelete: () => _removeImportedConfig(file),
+                startToEndAction: Container(
                   decoration: BoxDecoration(
                     color: Colors.transparent,
                     borderRadius: dismissibleBorderRadius,
@@ -2897,15 +2874,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                               isPinned
                                   ? Icons.push_pin
                                   : Icons.push_pin_outlined,
-                              color: const Color.fromRGBO(255, 179, 0, 1),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              isPinned ? l10n.unpinConfig : l10n.pinConfig,
-                              style: const TextStyle(
-                                color: Color.fromRGBO(255, 179, 0, 1),
-                                fontWeight: FontWeight.w700,
-                              ),
+                              color: isDark ? Colors.white : Colors.black,
                             ),
                           ],
                         ),
@@ -2913,7 +2882,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-                secondaryBackground: Container(
+                deleteAction: Container(
                   decoration: BoxDecoration(
                     color: Colors.transparent,
                     borderRadius: dismissibleBorderRadius,
@@ -2940,14 +2909,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-                confirmDismiss: (direction) async {
-                  if (direction == DismissDirection.startToEnd) {
-                    await _togglePinnedConfig(file);
-                    return false;
-                  }
-                  return true;
-                },
-                onDismissed: (_) => _removeImportedConfig(file),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2994,113 +2955,45 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                                   child: Row(
                                     children: [
                                       countryBadge,
-                                      const SizedBox(width: 8),
+                                      SizedBox(width: isPinned ? 4 : 8),
                                       Expanded(
-                                        child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
+                                        child: Row(
                                           children: [
-                                            Text(
-                                              _displayConfigName(
-                                                file,
-                                                endpointText: endpointText,
+                                            if (isPinned) ...[
+                                              Icon(
+                                                Icons.push_pin,
+                                                color: colorScheme.primary,
+                                                size: 20,
                                               ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: textTheme.titleMedium
-                                                  ?.copyWith(
-                                                    color: itemForegroundColor,
-                                                  ),
-                                            ),
-                                            Transform.translate(
-                                              offset: const Offset(0, -2),
+                                              const SizedBox(width: 6),
+                                            ],
+                                            Expanded(
                                               child: Text(
-                                                endpointText,
+                                                _displayConfigName(
+                                                  file,
+                                                  endpointText: endpointText,
+                                                ),
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
-                                                style: textTheme.bodyMedium
+                                                style: textTheme.titleMedium
                                                     ?.copyWith(
-                                                      color: endpointColor,
+                                                      color:
+                                                          itemForegroundColor,
                                                     ),
                                               ),
                                             ),
                                           ],
                                         ),
                                       ),
-                                      const SizedBox(width: 12),
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          if (isPinned) ...[
-                                            Icon(
-                                              Icons.push_pin,
-                                              color: colorScheme.primary,
-                                              size: 20,
-                                            ),
-                                            const SizedBox(width: 8),
-                                          ],
-                                          if (isSelected) ...[
-                                            Icon(
-                                              Icons.check_circle,
-                                              color: isDark
-                                                  ? Colors.white
-                                                  : Colors.black,
-                                            ),
-                                            const SizedBox(width: 8),
-                                          ],
-                                          SizedBox(
-                                            height: 32,
-                                            width: 32,
-                                            child: FilledButton(
-                                              onPressed: isUpdatingThisConfig
-                                                  ? null
-                                                  : () =>
-                                                        _sendSelectedConfigUpdate(
-                                                          file,
-                                                        ),
-                                              style: FilledButton.styleFrom(
-                                                backgroundColor: isDark
-                                                    ? Colors.white.withValues(
-                                                        alpha: 0.12,
-                                                      )
-                                                    : Colors.black,
-                                                foregroundColor: Colors.white,
-                                                minimumSize: Size.zero,
-                                                padding: EdgeInsets.zero,
-                                                tapTargetSize:
-                                                    MaterialTapTargetSize
-                                                        .shrinkWrap,
-                                                visualDensity:
-                                                    VisualDensity.compact,
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                        _elementBorderRadius,
-                                                      ),
-                                                ),
-                                              ),
-                                              child: isUpdatingThisConfig
-                                                  ? const SizedBox(
-                                                      width: 14,
-                                                      height: 14,
-                                                      child:
-                                                          CircularProgressIndicator(
-                                                            strokeWidth: 2,
-                                                            color: Colors.white,
-                                                          ),
-                                                    )
-                                                  : const Icon(
-                                                      Icons.refresh,
-                                                      size: 18,
-                                                      color: Colors.white,
-                                                    ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                                      if (isSelected) ...[
+                                        const SizedBox(width: 12),
+                                        Icon(
+                                          Icons.check_circle,
+                                          color: isDark
+                                              ? Colors.white
+                                              : Colors.black,
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ),
@@ -3595,6 +3488,142 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ConfigSwipeActionPane extends StatefulWidget {
+  const _ConfigSwipeActionPane({
+    super.key,
+    required this.child,
+    required this.startToEndAction,
+    required this.deleteAction,
+    required this.canSwipeStartToEnd,
+    required this.canSwipeEndToStart,
+    required this.onStartToEndAction,
+    required this.onDelete,
+  });
+
+  final Widget child;
+  final Widget startToEndAction;
+  final Widget deleteAction;
+  final bool canSwipeStartToEnd;
+  final bool canSwipeEndToStart;
+  final Future<void> Function() onStartToEndAction;
+  final VoidCallback onDelete;
+
+  @override
+  State<_ConfigSwipeActionPane> createState() => _ConfigSwipeActionPaneState();
+}
+
+class _ConfigSwipeActionPaneState extends State<_ConfigSwipeActionPane> {
+  static const double _actionExtent = 112;
+  static const double _settleThreshold = _actionExtent / 2;
+  static const double _flingVelocity = 500;
+  static const Duration _settleDuration = Duration(milliseconds: 200);
+
+  double _dragOffset = 0;
+  bool _isDragging = false;
+  bool _dragStartedWithDeleteRevealed = false;
+
+  bool get _deleteIsRevealed => _dragOffset < 0;
+
+  @override
+  void didUpdateWidget(covariant _ConfigSwipeActionPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.canSwipeEndToStart && _dragOffset < 0) {
+      _dragOffset = 0;
+    }
+    if (!widget.canSwipeStartToEnd && _dragOffset > 0) {
+      _dragOffset = 0;
+    }
+  }
+
+  void _handleHorizontalDragStart(DragStartDetails details) {
+    setState(() {
+      _isDragging = true;
+      _dragStartedWithDeleteRevealed = _deleteIsRevealed;
+    });
+  }
+
+  void _handleHorizontalDragUpdate(DragUpdateDetails details) {
+    final minimumOffset = widget.canSwipeEndToStart ? -_actionExtent : 0.0;
+    final maximumOffset = widget.canSwipeStartToEnd ? _actionExtent : 0.0;
+    setState(() {
+      _dragOffset = (_dragOffset + details.delta.dx)
+          .clamp(minimumOffset, maximumOffset)
+          .toDouble();
+    });
+  }
+
+  void _handleHorizontalDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final shouldRunStartAction =
+        !_dragStartedWithDeleteRevealed &&
+        widget.canSwipeStartToEnd &&
+        (_dragOffset >= _settleThreshold || velocity >= _flingVelocity);
+    final shouldRevealDelete =
+        !shouldRunStartAction &&
+        widget.canSwipeEndToStart &&
+        (_dragOffset <= -_settleThreshold || velocity <= -_flingVelocity);
+
+    setState(() {
+      _isDragging = false;
+      _dragOffset = shouldRevealDelete ? -_actionExtent : 0;
+    });
+
+    if (shouldRunStartAction) {
+      unawaited(widget.onStartToEndAction());
+    }
+  }
+
+  void _handleHorizontalDragCancel() {
+    setState(() {
+      _isDragging = false;
+      _dragOffset = _deleteIsRevealed ? -_actionExtent : 0;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canSwipe = widget.canSwipeStartToEnd || widget.canSwipeEndToStart;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart: canSwipe ? _handleHorizontalDragStart : null,
+      onHorizontalDragUpdate: canSwipe ? _handleHorizontalDragUpdate : null,
+      onHorizontalDragEnd: canSwipe ? _handleHorizontalDragEnd : null,
+      onHorizontalDragCancel: canSwipe ? _handleHorizontalDragCancel : null,
+      child: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          Positioned.fill(child: IgnorePointer(child: widget.startToEndAction)),
+          Positioned(
+            top: 0,
+            right: 0,
+            width: _actionExtent,
+            height: _MyHomePageState._mainActionButtonHeight,
+            child: Semantics(
+              button: true,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: widget.onDelete,
+                  child: widget.deleteAction,
+                ),
+              ),
+            ),
+          ),
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: _dragOffset),
+            duration: _isDragging ? Duration.zero : _settleDuration,
+            curve: Curves.easeOutCubic,
+            builder: (context, offset, child) =>
+                Transform.translate(offset: Offset(offset, 0), child: child),
+            child: widget.child,
+          ),
+        ],
       ),
     );
   }
