@@ -97,6 +97,19 @@ class AppLocalizations {
   String get generalSection => _get('Основные');
   String get otherSection => language == AppLanguage.ru ? 'Другое' : 'Other';
   String get splitTunneling => _get('Раздельное туннелирование');
+  String get splitAppsDescription => language == AppLanguage.ru
+      ? 'Выберите режим и укажите приложения, которые должны идти через VPN или обходить его'
+      : 'Choose a mode and specify which apps should use or bypass the VPN';
+  String get splitSitesDescription => language == AppLanguage.ru
+      ? 'Выберите режим и укажите сайты, которые должны идти через VPN или обходить его'
+      : 'Choose a mode and specify which sites should use or bypass the VPN';
+  String selectedAppsCount(int count) => language == AppLanguage.ru
+      ? 'Выбрано приложений: $count'
+      : 'Apps selected: $count';
+  String selectedSitesCount(int count) => language == AppLanguage.ru
+      ? 'Выбрано доменов: $count'
+      : 'Domains selected: $count';
+  String get websites => language == AppLanguage.ru ? 'Домены' : 'Domains';
   String get apps => _get('Приложения');
   String get sites => _get('Домены');
   String get tunnelMode => _get('Режим туннелирования');

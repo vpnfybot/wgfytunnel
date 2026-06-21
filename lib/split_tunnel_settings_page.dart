@@ -520,6 +520,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
 
   Future<T?> _showSelectionSheet<T>({
     required String title,
+    String? description,
     required T selected,
     required List<T> values,
     required String Function(T value) titleBuilder,
@@ -548,7 +549,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     return showModalBottomSheet<T>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
+      showDragHandle: false,
       builder: (sheetContext) {
         final theme = Theme.of(sheetContext);
         var currentSelection = selected;
@@ -613,7 +614,19 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      if (description != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          description,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.62,
+                            ),
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 18),
                       for (var index = 0; index < values.length; index++) ...[
                         _buildSheetOption<T>(
                           value: values[index],
@@ -725,7 +738,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     final l10n = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     await _showSelectionSheet<SplitTunnelMode>(
-      title: l10n.tunnelMode,
+      title: l10n.splitTunneling,
+      description: l10n.splitAppsDescription,
       selected: _splitTunnelMode,
       values: SplitTunnelMode.values,
       titleBuilder: (mode) => _localizedSplitTunnelModeLabel(l10n, mode),
@@ -763,7 +777,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     final l10n = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     await _showSelectionSheet<SplitTunnelDomainMode>(
-      title: l10n.domainMode,
+      title: l10n.splitTunneling,
+      description: l10n.splitSitesDescription,
       selected: _domainMode,
       values: SplitTunnelDomainMode.values,
       titleBuilder: (mode) => _localizedSplitTunnelDomainModeLabel(l10n, mode),
@@ -1364,7 +1379,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
-        showDragHandle: true,
+        showDragHandle: false,
         builder: (sheetContext) {
           final theme = Theme.of(sheetContext);
           final isDark = theme.brightness == Brightness.dark;
@@ -1535,7 +1550,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
+      showDragHandle: false,
       builder: (sheetContext) {
         final theme = Theme.of(sheetContext);
         final isDark = theme.brightness == Brightness.dark;
@@ -1879,20 +1894,30 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   Widget _buildPickerLauncherCard({
     required IconData icon,
     required String title,
-    String? subtitle,
-    required String buttonLabel,
+    required String subtitle,
     required VoidCallback onPressed,
   }) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    return _buildSectionCard(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(_settingsBlockRadius),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF141414) : Colors.white,
+            borderRadius: BorderRadius.circular(_settingsBlockRadius),
+            border: Border.all(
+              color: theme.dividerColor.withValues(alpha: isDark ? 0.28 : 0.14),
+            ),
+          ),
           child: Row(
             children: [
-              _buildIconBadge(icon: icon),
-              const SizedBox(width: 14),
+              Icon(icon, size: 28),
+              const SizedBox(width: 18),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1903,53 +1928,36 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.62,
-                          ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.62,
                         ),
                       ),
-                    ],
+                    ),
                   ],
                 ),
+              ),
+              const SizedBox(width: 12),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
               ),
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: onPressed,
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.black,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(_settingsBlockRadius),
-                ),
-              ),
-              icon: const Icon(Icons.arrow_forward_rounded),
-              label: Text(buttonLabel),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
   Widget _buildAppsSection({VoidCallback? onSelectionChanged}) {
     final l10n = AppLocalizations.of(context);
-    final title = _selectAppsTitle(l10n);
     return _buildPickerLauncherCard(
       icon: Icons.apps_rounded,
-      title: title,
-      buttonLabel: title,
+      title: l10n.apps,
+      subtitle: l10n.selectedAppsCount(_selectedPackages.length),
       onPressed: () =>
           _showAppsPickerSheet(onSelectionChanged: onSelectionChanged),
     );
@@ -1957,12 +1965,10 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
 
   Widget _buildDomainsSection({VoidCallback? onSelectionChanged}) {
     final l10n = AppLocalizations.of(context);
-    final title = _domainsPickerTitle(l10n);
-
     return _buildPickerLauncherCard(
       icon: Icons.language_rounded,
-      title: title,
-      buttonLabel: l10n.selectSites,
+      title: l10n.websites,
+      subtitle: l10n.selectedSitesCount(_domainList.length),
       onPressed: () =>
           _showDomainsPickerSheet(onSelectionChanged: onSelectionChanged),
     );
