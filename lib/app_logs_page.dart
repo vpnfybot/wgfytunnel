@@ -71,10 +71,7 @@ class _AppLogsPageState extends State<AppLogsPage> {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
-                child: Text(
-                  l10n.noLogsLabel,
-                  textAlign: TextAlign.center,
-                ),
+                child: Text(l10n.noLogsLabel, textAlign: TextAlign.center),
               ),
             );
           }
@@ -82,33 +79,13 @@ class _AppLogsPageState extends State<AppLogsPage> {
           return SelectionArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF141414) : Colors.white,
-                  borderRadius: const BorderRadius.all(Radius.circular(12)),
-                  boxShadow: isDark
-                      ? null
-                      : const [
-                          BoxShadow(
-                            color: Color.fromRGBO(0, 0, 0, 0.20),
-                            blurRadius: 8,
-                            spreadRadius: 0,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    logs,
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      height: 1.45,
-                      color: isDark ? Colors.white : Colors.black,
-                    ),
-                  ),
+              child: Text(
+                logs,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  height: 1.45,
+                  color: isDark ? Colors.white : Colors.black,
                 ),
               ),
             ),

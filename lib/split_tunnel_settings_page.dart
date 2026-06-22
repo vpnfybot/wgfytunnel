@@ -537,6 +537,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     selectionIndicatorShadowBuilder,
     double optionScale = 1.0,
     Duration? delayedCloseDuration,
+    bool centerHeader = false,
     bool closeOnSelection = true,
     ValueChanged<T>? onSelectionChanged,
     Widget? Function(
@@ -550,8 +551,11 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       context: context,
       isScrollControlled: true,
       showDragHandle: false,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
       builder: (sheetContext) {
         final theme = Theme.of(sheetContext);
+        final isDark = theme.brightness == Brightness.dark;
         var currentSelection = selected;
         var closeRequestId = 0;
 
@@ -600,70 +604,94 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
               refreshSheet,
             );
 
-            return SafeArea(
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        title,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(12),
+                ),
+                boxShadow: isDark
+                    ? [
+                        BoxShadow(
+                          color: Colors.white.withValues(alpha: 0.20),
+                          blurRadius: 8,
+                          spreadRadius: 0,
+                          offset: const Offset(0, -2),
                         ),
-                      ),
-                      if (description != null) ...[
-                        const SizedBox(height: 8),
+                      ]
+                    : null,
+              ),
+              child: SafeArea(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                         Text(
-                          description,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.62,
-                            ),
-                            height: 1.4,
+                          title,
+                          textAlign: centerHeader
+                              ? TextAlign.center
+                              : TextAlign.start,
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
-                      ],
-                      const SizedBox(height: 18),
-                      for (var index = 0; index < values.length; index++) ...[
-                        _buildSheetOption<T>(
-                          value: values[index],
-                          selected: currentSelection,
-                          title: titleBuilder(values[index]),
-                          subtitle: subtitleBuilder?.call(values[index]),
-                          icon: iconBuilder?.call(values[index]),
-                          useSwitchIndicator: useSwitchIndicator,
-                          showSelectionIndicator: showSelectionIndicator,
-                          invertSelectionColors: invertSelectionColors,
-                          selectedOptionBackgroundColor:
-                              selectedOptionBackgroundColor,
-                          optionBackgroundColor: optionBackgroundColorBuilder
-                              ?.call(values[index]),
-                          hasBorderOverride: optionBorderBuilder != null,
-                          borderOverride: optionBorderBuilder?.call(
-                            values[index],
-                            values[index] == currentSelection,
-                            theme,
-                          ),
-                          selectionIndicatorShadow:
-                              selectionIndicatorShadowBuilder?.call(
-                                values[index],
-                                values[index] == currentSelection,
-                                theme,
+                        if (description != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            description,
+                            textAlign: centerHeader
+                                ? TextAlign.center
+                                : TextAlign.start,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.62,
                               ),
-                          sizeScale: optionScale,
-                          onTap: () => handleSelection(values[index]),
-                        ),
-                        if (index != values.length - 1)
-                          const SizedBox(height: 12),
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 18),
+                        for (var index = 0; index < values.length; index++) ...[
+                          _buildSheetOption<T>(
+                            value: values[index],
+                            selected: currentSelection,
+                            title: titleBuilder(values[index]),
+                            subtitle: subtitleBuilder?.call(values[index]),
+                            icon: iconBuilder?.call(values[index]),
+                            useSwitchIndicator: useSwitchIndicator,
+                            showSelectionIndicator: showSelectionIndicator,
+                            invertSelectionColors: invertSelectionColors,
+                            selectedOptionBackgroundColor:
+                                selectedOptionBackgroundColor,
+                            optionBackgroundColor: optionBackgroundColorBuilder
+                                ?.call(values[index]),
+                            hasBorderOverride: optionBorderBuilder != null,
+                            borderOverride: optionBorderBuilder?.call(
+                              values[index],
+                              values[index] == currentSelection,
+                              theme,
+                            ),
+                            selectionIndicatorShadow:
+                                selectionIndicatorShadowBuilder?.call(
+                                  values[index],
+                                  values[index] == currentSelection,
+                                  theme,
+                                ),
+                            sizeScale: optionScale,
+                            onTap: () => handleSelection(values[index]),
+                          ),
+                          if (index != values.length - 1)
+                            const SizedBox(height: 12),
+                        ],
+                        if (footer != null) ...[
+                          const SizedBox(height: 16),
+                          footer,
+                        ],
                       ],
-                      if (footer != null) ...[
-                        const SizedBox(height: 16),
-                        footer,
-                      ],
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -684,6 +712,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       values: AppLanguage.values,
       titleBuilder: (language) => _languageLabel(l10n, language),
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
+      centerHeader: true,
       optionBorderBuilder: isDark
           ? (_, isSelected, theme) =>
                 isSelected ? null : Border.all(color: const Color(0xFF282828))
@@ -707,6 +736,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       values: AppThemePreference.values,
       titleBuilder: (preference) => _themePreferenceLabel(l10n, preference),
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
+      centerHeader: true,
       optionBorderBuilder: isDark
           ? (_, isSelected, theme) =>
                 isSelected ? null : Border.all(color: const Color(0xFF282828))
@@ -738,7 +768,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     final l10n = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     await _showSelectionSheet<SplitTunnelMode>(
-      title: l10n.splitTunneling,
+      title: l10n.tunnelMode,
       description: l10n.splitAppsDescription,
       selected: _splitTunnelMode,
       values: SplitTunnelMode.values,
@@ -747,6 +777,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
           _localizedSplitTunnelModeDescription(l10n, mode),
       showSelectionIndicator: false,
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
+      centerHeader: true,
       closeOnSelection: false,
       onSelectionChanged: (selection) {
         setState(() {
@@ -777,7 +808,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     final l10n = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     await _showSelectionSheet<SplitTunnelDomainMode>(
-      title: l10n.splitTunneling,
+      title: l10n.domainMode,
       description: l10n.splitSitesDescription,
       selected: _domainMode,
       values: SplitTunnelDomainMode.values,
@@ -786,6 +817,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
           _localizedSplitTunnelDomainModeDescription(l10n, mode),
       showSelectionIndicator: false,
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
+      centerHeader: true,
       closeOnSelection: false,
       onSelectionChanged: (selection) {
         setState(() {
@@ -1433,7 +1465,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                 child: FractionallySizedBox(
                   heightFactor: 0.82,
                   child: Padding(
-                    padding: EdgeInsets.only(top: 8, bottom: bottomInset + 20),
+                    padding: EdgeInsets.only(top: 16, bottom: bottomInset + 20),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -1603,7 +1635,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
 
             return SafeArea(
               child: Padding(
-                padding: EdgeInsets.only(top: 8, bottom: bottomInset + 20),
+                padding: EdgeInsets.only(top: 16, bottom: bottomInset + 20),
                 child: SizedBox(
                   height: MediaQuery.sizeOf(sheetContext).height * 0.78,
                   child: Column(
