@@ -23,11 +23,13 @@ class AppLocalizations {
   String get configSelected => _get('Конфигурация выбрана');
   String get importConfig => _get('Импортировать');
   String get configHelpTooltip => _get('Где взять конфигурацию');
-  String get configPurchaseIntro => _get('Вы можете приобрести конфигурацию в боте');
+  String get configPurchaseIntro =>
+      _get('Вы можете приобрести конфигурацию в боте');
   String get configPurchaseLink => _get('t.me/vpnfybot');
   String get failedOpenLink => _get('Не удалось открыть ссылку');
   String get updateAvailableTitle => _get('Доступно обновление');
-  String get updateAvailableMessage => _get('Доступна новая версия приложения. Обновить сейчас?');
+  String get updateAvailableMessage =>
+      _get('Доступна новая версия приложения. Обновить сейчас?');
   String get updateNow => _get('Обновить');
   String get later => _get('Позже');
   String get activeUntilLabel => _get('Активна до:');
@@ -89,7 +91,8 @@ class AppLocalizations {
 
   String get importedConfigs => _get('Импортированные конфигурации');
   String get noImportedConfigs => _get('Конфигурации еще не импортированы');
-  String get importOrScanWireGuardConfig => _get('Импортируйте или отсканируйте конфигурацию WireGuard / AmneziaWG');
+  String get importOrScanWireGuardConfig =>
+      _get('Импортируйте или отсканируйте конфигурацию WireGuard / AmneziaWG');
   String get pinConfig => _get('Закрепить');
   String get unpinConfig => _get('Открепить');
   String get noFileSelected => _get('Файл не выбран');
@@ -120,8 +123,9 @@ class AppLocalizations {
       _get('Через VPN будет идти трафик всей системы.');
   String get onlySelectedDescription =>
       _get('Через VPN будут идти только отмеченные приложения.');
-  String get allExceptDescription =>
-      _get('Через VPN будет идти трафик всей системы, кроме отмеченных приложений.');
+  String get allExceptDescription => _get(
+    'Через VPN будет идти трафик всей системы, кроме отмеченных приложений.',
+  );
   String get searchApps => _get('Поиск приложений');
   String get appsNotFound => _get('Приложения не найдены');
   String get allTrafficViaVpn => _get('Весь трафик идёт через VPN');
@@ -131,18 +135,20 @@ class AppLocalizations {
   String get allSitesExceptSpecified => _get('Все домены кроме указанных');
   String get allSitesDescription =>
       _get('Весь трафик идет через VPN без доменных ограничений.');
-  String get onlyDomainsDescription =>
-      _get('Через VPN идут только перечисленные домены (остальной трафик — напрямую).');
+  String get onlyDomainsDescription => _get(
+    'Через VPN идут только перечисленные домены (остальной трафик — напрямую).',
+  );
   String get exceptDomainsDescription =>
       _get('Через VPN идет весь трафик, кроме перечисленных доменов.');
   String get selectApps => _get('Выберите приложения');
   String get selectSites => _get('Выберите домены');
   String get selectAppsAndSites => _get('Выберите приложения и домены');
-    String get addedSites => _get('Добавленные домены');
-    String get excludedSites => _get('Исключенные домены');
+  String get addedSites => _get('Добавленные домены');
+  String get excludedSites => _get('Исключенные домены');
   String get addDomainHint => _get('example.com');
   String get domainsNotAdded => _get('Домены не выбраны');
-  String get enterCorrectDomain => _get('Введите корректный домен (например, example.com)');
+  String get enterCorrectDomain =>
+      _get('Введите корректный домен (например, example.com)');
   String get failedGetApps => _get('Не удалось получить список приложений');
   String get errorLoadingApps => _get('Ошибка загрузки приложений');
   String get fileSelectionCancelled => _get('Выбор файла отменен');
@@ -164,10 +170,14 @@ class AppLocalizations {
   String get close => _get('Закрыть');
   String get configRenameEmpty => _get('Введите имя конфигурации');
   String get configRenameInvalid => _get('Имя содержит недопустимые символы');
-  String get configRenameExists => _get('Конфигурация с таким именем уже существует');
-  String get configRenameFailed => _get('Не удалось переименовать конфигурацию');
-  String get configSaveFailed => _get('Не удалось сохранить изменения конфигурации');
-  String get invalidConfig => _get('Некорректная конфигурация WireGuard / AmneziaWG');
+  String get configRenameExists =>
+      _get('Конфигурация с таким именем уже существует');
+  String get configRenameFailed =>
+      _get('Не удалось переименовать конфигурацию');
+  String get configSaveFailed =>
+      _get('Не удалось сохранить изменения конфигурации');
+  String get invalidConfig =>
+      _get('Некорректная конфигурация WireGuard / AmneziaWG');
   String get failedParseConfig => _get('Не удалось разобрать конфигурацию');
   String get failedStartTunnel => _get('Не удалось запустить туннель');
   String get failedStopTunnel => _get('Не удалось остановить туннель');
@@ -175,15 +185,16 @@ class AppLocalizations {
   String get tunnelStopped => _get('Туннель остановлен');
   String get languageLabel => _get('Язык');
   String get theme => _get('Тема');
-    String get logsLabel => language == AppLanguage.ru ? 'Логи' : 'Logs';
-    String get logsSubtitle =>
+  String get logsLabel => language == AppLanguage.ru ? 'Логи' : 'Logs';
+  String get logsSubtitle =>
       language == AppLanguage.ru ? 'Ошибки приложения' : 'Application errors';
-    String get noLogsLabel =>
+  String get noLogsLabel =>
       language == AppLanguage.ru ? 'Логи пока пусты' : 'No logs yet';
-    String get clearLogsLabel =>
+  String get clearLogsLabel =>
       language == AppLanguage.ru ? 'Очистить логи' : 'Clear logs';
-    String get failedLoadLogsLabel =>
-      language == AppLanguage.ru ? 'Не удалось загрузить логи' : 'Failed to load logs';
+  String get failedLoadLogsLabel => language == AppLanguage.ru
+      ? 'Не удалось загрузить логи'
+      : 'Failed to load logs';
   String get licensesLabel => _get('Лицензии');
   String get systemTheme => _get('Системная');
   String get lightTheme => _get('Светлая');
@@ -191,16 +202,12 @@ class AppLocalizations {
   String get english => _get('English');
   String get russian => _get('Русский');
   String get scanQrCode => _get('Сканировать QR-код');
-  String get reconnectToApplyChangedSettings => _get(
-    'Чтобы применить измененные настройки, переподключите VPN.',
-  );
+  String get reconnectToApplyChangedSettings =>
+      _get('Чтобы применить измененные настройки, переподключите VPN.');
   String get aboutTooltip => _get('О приложении и лицензиях');
   String get aboutTitle => _get('О приложении');
   String get aboutLicensesIntro => _get(
     'В этой сборке используются сторонние компоненты с открытыми лицензиями. Ниже перечислены основные встроенные и подключенные библиотеки, влияющие на работу VPN.',
-  );
-  String get aboutLicensesFooter => _get(
-    'Полные тексты лицензий Flutter, Dart-пакетов, нативных Android-компонентов, встроенных GPL-компонентов и web-ассетов можно открыть отдельной кнопкой.',
   );
   String get componentUsageLabel => _get('Использование');
   String get componentAuthorLabel => _get('Автор / правообладатель');
@@ -284,7 +291,8 @@ class AppLocalizations {
         return 'sing-box was not initialized';
     }
 
-    if (text.startsWith('VPN: только выбранные домены через туннель (') && text.endsWith(')')) {
+    if (text.startsWith('VPN: только выбранные домены через туннель (') &&
+        text.endsWith(')')) {
       final domains = text.substring(
         'VPN: только выбранные домены через туннель ('.length,
         text.length - 1,
@@ -292,7 +300,8 @@ class AppLocalizations {
       return 'VPN: only selected domains through the tunnel ($domains)';
     }
 
-    if (text.startsWith('VPN: все домены кроме выбранных через туннель (') && text.endsWith(')')) {
+    if (text.startsWith('VPN: все домены кроме выбранных через туннель (') &&
+        text.endsWith(')')) {
       final domains = text.substring(
         'VPN: все домены кроме выбранных через туннель ('.length,
         text.length - 1,
@@ -524,8 +533,6 @@ class AppLocalizations {
         return 'About';
       case 'В этой сборке используются сторонние компоненты с открытыми лицензиями. Ниже перечислены основные встроенные и подключенные библиотеки, влияющие на работу VPN.':
         return 'This build uses third-party open-source components. The main bundled and linked libraries that affect the VPN functionality are listed below.';
-      case 'Полные тексты лицензий Flutter, Dart-пакетов, нативных Android-компонентов, встроенных GPL-компонентов и web-ассетов можно открыть отдельной кнопкой.':
-        return 'You can open the full license texts for Flutter, Dart packages, native Android components, bundled GPL components, and web assets with the separate button.';
       case 'Использование':
         return 'Usage';
       case 'Автор / правообладатель':

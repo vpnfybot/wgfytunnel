@@ -194,11 +194,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                               author: 'AmneziaWG / Zane Schepke',
                               license: 'Apache License 2.0',
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              l10n.aboutLicensesFooter,
-                              style: textTheme.bodySmall,
-                            ),
                           ],
                         ),
                       ),
@@ -527,6 +522,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     String Function(T value)? subtitleBuilder,
     IconData Function(T value)? iconBuilder,
     bool useSwitchIndicator = false,
+    bool useMonochromeSwitchStyle = false,
     bool showSelectionIndicator = true,
     bool invertSelectionColors = false,
     Color? selectedOptionBackgroundColor,
@@ -662,6 +658,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                             subtitle: subtitleBuilder?.call(values[index]),
                             icon: iconBuilder?.call(values[index]),
                             useSwitchIndicator: useSwitchIndicator,
+                            useMonochromeSwitchStyle: useMonochromeSwitchStyle,
                             showSelectionIndicator: showSelectionIndicator,
                             invertSelectionColors: invertSelectionColors,
                             selectedOptionBackgroundColor:
@@ -711,11 +708,13 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       selected: languageService.language,
       values: AppLanguage.values,
       titleBuilder: (language) => _languageLabel(l10n, language),
-      selectedOptionBackgroundColor: isDark ? Colors.white : null,
+      useSwitchIndicator: true,
+      useMonochromeSwitchStyle: true,
+      optionBackgroundColorBuilder: (_) =>
+          isDark ? const Color(0xFF141414) : Colors.white,
       centerHeader: true,
       optionBorderBuilder: isDark
-          ? (_, isSelected, theme) =>
-                isSelected ? null : Border.all(color: const Color(0xFF282828))
+          ? (_, _, _) => Border.all(color: const Color(0xFF282828))
           : null,
     );
 
@@ -735,26 +734,14 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       selected: themeService.preference,
       values: AppThemePreference.values,
       titleBuilder: (preference) => _themePreferenceLabel(l10n, preference),
-      selectedOptionBackgroundColor: isDark ? Colors.white : null,
+      useSwitchIndicator: true,
+      useMonochromeSwitchStyle: true,
+      optionBackgroundColorBuilder: (_) =>
+          isDark ? const Color(0xFF141414) : Colors.white,
       centerHeader: true,
       optionBorderBuilder: isDark
-          ? (_, isSelected, theme) =>
-                isSelected ? null : Border.all(color: const Color(0xFF282828))
-          : (_, isSelected, theme) => isSelected
-                ? null
-                : Border.all(color: theme.dividerColor.withValues(alpha: 0.14)),
-      selectionIndicatorShadowBuilder: isDark
-          ? null
-          : (_, isSelected, theme) => isSelected
-                ? const [
-                    BoxShadow(
-                      color: Color.fromRGBO(0, 0, 0, 0.20),
-                      blurRadius: 8,
-                      spreadRadius: 0,
-                      offset: Offset(0, 2),
-                    ),
-                  ]
-                : null,
+          ? (_, _, _) => Border.all(color: const Color(0xFF282828))
+          : null,
     );
 
     if (!mounted || selection == null) {
@@ -845,6 +832,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     String? subtitle,
     IconData? icon,
     bool useSwitchIndicator = false,
+    bool useMonochromeSwitchStyle = false,
     bool showSelectionIndicator = true,
     bool invertSelectionColors = false,
     Color? selectedOptionBackgroundColor,
@@ -992,6 +980,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                     ? _buildSelectionSwitch(
                         selected: isSelected,
                         accent: isSelected,
+                        monochromeStyle: useMonochromeSwitchStyle,
                         forceLightOutline:
                             forceLightSwitchOutline ??
                             (hasCustomSurfaceColor &&
@@ -1095,10 +1084,32 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   Widget _buildSelectionSwitch({
     required bool selected,
     bool accent = false,
+    bool monochromeStyle = false,
     bool forceLightOutline = false,
     required ValueChanged<bool> onChanged,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (monochromeStyle) {
+      return Switch(
+        value: selected,
+        onChanged: (enabled) {
+          if (enabled != selected) {
+            onChanged(enabled);
+          }
+        },
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        activeThumbColor: Colors.white,
+        activeTrackColor: isDark
+            ? const Color(0xFF505050)
+            : const Color(0xFF141414),
+        inactiveThumbColor: isDark ? Colors.white : Colors.black,
+        inactiveTrackColor: isDark ? Colors.black : Colors.white,
+        trackOutlineColor: const WidgetStatePropertyAll<Color>(Colors.black),
+        trackOutlineWidth: const WidgetStatePropertyAll<double>(1.5),
+      );
+    }
+
     final outlineColor = forceLightOutline ? Colors.black : null;
     final outlineWidth = forceLightOutline ? 1.5 : null;
 
@@ -1301,6 +1312,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                 _buildSelectionSwitch(
                   selected: selected,
                   accent: selected,
+                  monochromeStyle: true,
                   forceLightOutline: true,
                   onChanged: (enabled) {
                     if (enabled != selected) {
@@ -2159,14 +2171,12 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                       _buildSettingsTile(
                         icon: Icons.subject_rounded,
                         title: l10n.logsLabel,
-                        subtitle: l10n.logsSubtitle,
                         onTap: _showLogsPage,
                       ),
                       _buildSectionDivider(),
                       _buildSettingsTile(
                         icon: Icons.article_outlined,
                         title: l10n.licensesLabel,
-                        subtitle: l10n.aboutTitle,
                         onTap: _showAboutDialog,
                       ),
                     ],
