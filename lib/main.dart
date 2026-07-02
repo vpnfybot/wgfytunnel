@@ -1941,9 +1941,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
     for (final file in configs) {
       if (_isAmneziaConfigFile(file) && !hasAddedAmneziaSection) {
-        entries.add(
-          const _ImportedConfigListEntry.section('amnezia-wireguard'),
-        );
+        entries.add(const _ImportedConfigListEntry.section('AmneziaWG'));
         hasAddedAmneziaSection = true;
       }
 
@@ -2720,6 +2718,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
 
     const configItemSpacing = 4.0;
+    const amneziaConfigItemSpacing = 8.0;
     const listTopPadding = 12.0;
     const listBottomPadding = 8.0;
     const configDateSpacing = 6.0;
@@ -2748,6 +2747,23 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         : protocolOrderedConfigs;
     final displayEntries = _buildImportedConfigListEntries(displayedConfigs);
 
+    double displayEntrySpacingAfter(int index) {
+      if (index < 0 || index >= displayEntries.length - 1) {
+        return 0.0;
+      }
+
+      final entry = displayEntries[index];
+      final nextEntry = displayEntries[index + 1];
+      final isBetweenAmneziaConfigs =
+          !entry.isSection &&
+          !nextEntry.isSection &&
+          _isAmneziaConfigFile(entry.configFile) &&
+          _isAmneziaConfigFile(nextEntry.configFile);
+      return isBetweenAmneziaConfigs
+          ? amneziaConfigItemSpacing
+          : configItemSpacing;
+    }
+
     double displayEntryExtent(_ImportedConfigListEntry entry) {
       if (entry.isSection) {
         return _configProtocolSectionHeight;
@@ -2760,23 +2776,28 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       0.0,
       (sum, entry) => sum + displayEntryExtent(entry),
     );
+    var totalEntriesSpacing = 0.0;
+    for (var index = 0; index < displayEntries.length - 1; index++) {
+      totalEntriesSpacing += displayEntrySpacingAfter(index);
+    }
     final totalContentHeight =
         totalEntriesHeight +
-        ((displayEntries.isNotEmpty ? displayEntries.length - 1 : 0) *
-            configItemSpacing) +
+        totalEntriesSpacing +
         listTopPadding +
         listBottomPadding;
     final shouldShowBottomShadow = totalContentHeight > viewportHeight;
     var activeConfigScrollOffset = 0.0;
     if (shouldReorderActiveConfig && _selectedConf != null) {
       var entryOffset = listTopPadding;
-      for (final entry in displayEntries) {
+      for (var index = 0; index < displayEntries.length; index++) {
+        final entry = displayEntries[index];
         if (!entry.isSection && entry.configFile.path == _selectedConf!.path) {
           activeConfigScrollOffset = entryOffset;
           break;
         }
 
-        entryOffset += displayEntryExtent(entry) + configItemSpacing;
+        entryOffset +=
+            displayEntryExtent(entry) + displayEntrySpacingAfter(index);
       }
     }
     _syncConfigListScrollForActiveTunnel(
@@ -2795,7 +2816,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             listBottomPadding,
           ),
           itemCount: displayEntries.length,
-          separatorBuilder: (context, index) => const SizedBox(height: 4),
+          separatorBuilder: (context, index) =>
+              SizedBox(height: displayEntrySpacingAfter(index)),
           itemBuilder: (context, index) {
             final entry = displayEntries[index];
             if (entry.isSection) {
