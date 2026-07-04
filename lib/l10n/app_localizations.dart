@@ -15,6 +15,10 @@ class AppLocalizations {
       _AppLocalizationsDelegate();
 
   String get appTitle => _get('wgfytunnel');
+  String get connectedToast =>
+      language == AppLanguage.ru ? 'Подключено' : 'Connected';
+  String get disconnectedToast =>
+      language == AppLanguage.ru ? 'Отключено' : 'Disconnected';
   String get connect => _get('Подключиться');
   String get disconnect => _get('Отключится');
   String get importing => _get('Импорт...');
@@ -146,13 +150,12 @@ class AppLocalizations {
   String get addedSites => _get('Добавленные домены');
   String get excludedSites => _get('Исключенные домены');
   String get addDomainHint => _get('example.com');
-  String get domainsNotAdded => _get('Домены не выбраны');
+  String get domainsNotAdded => _get('Домены не добавлены');
   String get enterCorrectDomain =>
       _get('Введите корректный домен (например, example.com)');
   String get failedGetApps => _get('Не удалось получить список приложений');
   String get errorLoadingApps => _get('Ошибка загрузки приложений');
   String get fileSelectionCancelled => _get('Выбор файла отменен');
-  String get failedGetFilePath => _get('Не удалось получить путь к файлу');
   String get failedReadFile => _get('Не удалось прочитать файл');
   String get configAlreadyImported => _get('Конфигурация уже импортирована');
   String get configDialogTitle => _get('Настройки конфигурации');
@@ -220,7 +223,10 @@ class AppLocalizations {
     'Локальная интеграция libcore/NEKOBOX для запуска встроенного сетевого ядра.',
   );
   String get aboutWireGuardUsage => _get(
-    'Android-библиотека, через которую приложение поднимает WireGuard и AmneziaWG-туннели.',
+    'Android-библиотека, через которую приложение поднимает WireGuard-туннели.',
+  );
+  String get aboutAmneziaWireGuardUsage => _get(
+    'Android-библиотека, через которую приложение поднимает AmneziaWG-туннели.',
   );
 
   String translateRuntimeMessage(String text) {
@@ -443,8 +449,8 @@ class AppLocalizations {
         return 'Excluded domains';
       case 'example.com':
         return 'example.com';
-      case 'Домены не выбраны':
-        return 'No domains selected';
+      case 'Домены не добавлены':
+        return 'No domains added';
       case 'Введите корректный домен (например, example.com)':
         return 'Enter a valid domain (e.g., example.com)';
       case 'Не удалось получить список приложений':
@@ -453,8 +459,6 @@ class AppLocalizations {
         return 'Error loading apps';
       case 'Выбор файла отменен':
         return 'File selection cancelled';
-      case 'Не удалось получить путь к файлу':
-        return 'Failed to get file path';
       case 'Не удалось прочитать файл':
         return 'Failed to read file';
       case 'Конфигурация уже импортирована':
@@ -545,8 +549,10 @@ class AppLocalizations {
         return 'Embedded runtime used for domain routing and VPN scenarios based on sing-box.';
       case 'Локальная интеграция libcore/NEKOBOX для запуска встроенного сетевого ядра.':
         return 'Local libcore/NEKOBOX integration used to run the embedded networking core.';
-      case 'Android-библиотека, через которую приложение поднимает WireGuard и AmneziaWG-туннели.':
-        return 'Android library used by the app to bring up WireGuard and AmneziaWG tunnels.';
+      case 'Android-библиотека, через которую приложение поднимает WireGuard-туннели.':
+        return 'Android library used by the app to bring up WireGuard tunnels.';
+      case 'Android-библиотека, через которую приложение поднимает AmneziaWG-туннели.':
+        return 'Android library used by the app to bring up AmneziaWG tunnels.';
       default:
         return ruText;
     }

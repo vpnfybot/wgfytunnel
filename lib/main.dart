@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -2366,23 +2366,14 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final l10n = AppLocalizations.of(context);
 
     try {
-      final picked = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        withData: false,
-      );
+      final picked = await openFile();
 
-      if (picked == null || picked.files.isEmpty) {
+      if (picked == null) {
         _showMessage(l10n.fileSelectionCancelled);
         return;
       }
 
-      final path = picked.files.single.path;
-      if (path == null) {
-        _showMessage(l10n.failedGetFilePath);
-        return;
-      }
-
-      final file = File(path);
+      final file = File(picked.path);
       if (!await file.exists()) {
         _showMessage(l10n.failedReadFile);
         return;
@@ -2404,6 +2395,18 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
     final managedFile = await _createManagedConfigFile('qr_config');
     await _importConfigFile(managedFile, contentOverride: scannedConfig);
+  }
+
+  Future<void> _showAndroidToast(String message) async {
+    try {
+      await _wireGuardChannel.invokeMethod<void>('showToast', {
+        'message': message,
+      });
+    } on MissingPluginException {
+      // Android-only feedback; other platforms do not register this method.
+    } on PlatformException {
+      // Toast failures must not change a successfully completed VPN action.
+    }
   }
 
   Future<void> _connectWireGuard() async {
@@ -2476,6 +2479,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       });
       if (connected) {
         unawaited(HapticFeedback.lightImpact());
+        unawaited(_showAndroidToast(l10n.connectedToast));
         _startStatsPolling();
       } else {
         _stopStatsPolling();
@@ -2530,6 +2534,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       });
       if (!connected) {
         _stopStatsPolling();
+        unawaited(_showAndroidToast(l10n.disconnectedToast));
       }
     } on PlatformException catch (e) {
       _showMessage(

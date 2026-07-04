@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.SystemClock
+import android.widget.Toast
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
@@ -93,6 +94,16 @@ class MainActivity : FlutterActivity() {
 		MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
 			.setMethodCallHandler { call, result ->
 				when (call.method) {
+					"showToast" -> {
+						val message = call.argument<String>("message")?.trim()
+						if (message.isNullOrEmpty()) {
+							result.error("INVALID_ARGS", "message is required", null)
+						} else {
+							Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
+							result.success(null)
+						}
+					}
+
 					"getInstalledApps" -> {
 						getInstalledApps(result)
 					}

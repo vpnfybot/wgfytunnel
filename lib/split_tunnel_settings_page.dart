@@ -189,8 +189,15 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                             ),
                             _buildAboutComponentSection(
                               pageContext,
-                              title: 'AmneziaWG Tunnel Library',
+                              title: 'WireGuard Tunnel Library',
                               usage: l10n.aboutWireGuardUsage,
+                              author: 'WireGuard LLC / Jason A. Donenfeld',
+                              license: 'Apache License 2.0',
+                            ),
+                            _buildAboutComponentSection(
+                              pageContext,
+                              title: 'AmneziaWG Tunnel Library',
+                              usage: l10n.aboutAmneziaWireGuardUsage,
                               author: 'AmneziaWG / Zane Schepke',
                               license: 'Apache License 2.0',
                             ),
@@ -1209,12 +1216,14 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     required IconData icon,
     required String title,
     String? subtitle,
+    bool shrinkWrap = false,
   }) {
     final theme = Theme.of(context);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Column(
+        mainAxisSize: shrinkWrap ? MainAxisSize.min : MainAxisSize.max,
         children: [
           Icon(
             icon,
@@ -1751,6 +1760,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                                 child: _buildEmptyState(
                                   icon: Icons.language_rounded,
                                   title: l10n.domainsNotAdded,
+                                  shrinkWrap: true,
                                 ),
                               )
                             : ListView.separated(
