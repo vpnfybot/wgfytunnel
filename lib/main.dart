@@ -2271,7 +2271,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     return '$h:$m:$s';
   }
 
-  Future<File> _createManagedConfigFile(String filePrefix) async {
+  Future<Directory> _managedConfigsDirectory() async {
     final appDirectory = await getApplicationDocumentsDirectory();
     final configsDirectory = Directory(
       '${appDirectory.path}${Platform.pathSeparator}imported_configs',
@@ -2281,13 +2281,58 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       await configsDirectory.create(recursive: true);
     }
 
+    return configsDirectory;
+  }
+
+  Future<File> _createManagedConfigFile(String filePrefix) async {
+    final configsDirectory = await _managedConfigsDirectory();
+
     return File(
       '${configsDirectory.path}${Platform.pathSeparator}'
       '${filePrefix}_${DateTime.now().millisecondsSinceEpoch}.conf',
     );
   }
 
-  Future<void> _importConfigFile(File file, {String? contentOverride}) async {
+  String _managedImportedConfigFileName(File sourceFile) {
+    final sourceFileName = _configName(sourceFile).trim();
+    final extensionIndex = sourceFileName.lastIndexOf('.');
+    final sourceBaseName = extensionIndex > 0
+        ? sourceFileName.substring(0, extensionIndex).trim()
+        : sourceFileName;
+    final normalizedBaseName = sourceBaseName.isEmpty
+        ? 'config'
+        : sourceBaseName;
+    return '$normalizedBaseName.conf';
+  }
+
+  Future<File> _copyToManagedConfigFile(File sourceFile) async {
+    final configsDirectory = await _managedConfigsDirectory();
+    final normalizedFileName = _managedImportedConfigFileName(sourceFile);
+    final baseName = normalizedFileName.substring(
+      0,
+      normalizedFileName.length - '.conf'.length,
+    );
+    var candidate = File(
+      '${configsDirectory.path}${Platform.pathSeparator}$normalizedFileName',
+    );
+    var suffix = 2;
+
+    while (await candidate.exists()) {
+      candidate = File(
+        '${configsDirectory.path}${Platform.pathSeparator}'
+        '${baseName}_$suffix.conf',
+      );
+      suffix += 1;
+    }
+
+    return sourceFile.copy(candidate.path);
+  }
+
+  Future<void> _importConfigFile(
+    File file, {
+    String? contentOverride,
+    bool copyToManagedStorage = false,
+  }) async {
     final l10n = AppLocalizations.of(context);
 
     try {
@@ -2325,20 +2370,23 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         return;
       }
 
-      if (contentOverride != null) {
-        await file.writeAsString(content, flush: true);
+      var importedFile = file;
+      if (copyToManagedStorage) {
+        importedFile = await _copyToManagedConfigFile(file);
+      } else if (contentOverride != null) {
+        await importedFile.writeAsString(content, flush: true);
       }
 
       final updatedConfigs = <File>[
-        file,
-        ..._importedConfigs.where((config) => config.path != file.path),
+        importedFile,
+        ..._importedConfigs.where((config) => config.path != importedFile.path),
       ];
       final updatedEndpointsByPath = <String, String>{
-        file.path: _configEndpointText(parsed),
+        importedFile.path: _configEndpointText(parsed),
         ..._configEndpointsByPath,
       };
       final updatedIsAmneziaByPath = <String, bool>{
-        file.path: _isAmneziaConfig(parsed),
+        importedFile.path: _isAmneziaConfig(parsed),
         ..._configIsAmneziaByPath,
       };
 
@@ -2346,16 +2394,19 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _importedConfigs = updatedConfigs;
         _configEndpointsByPath = updatedEndpointsByPath;
         _configIsAmneziaByPath = updatedIsAmneziaByPath;
-        _selectedConf = file;
+        _selectedConf = importedFile;
         _parsedConf = parsed;
         _isLoadingImportedConfigs = false;
       });
       unawaited(
         _queueCountryLookupsForConfigs([
-          file,
+          importedFile,
         ], endpointsByPath: updatedEndpointsByPath),
       );
-      await _persistImportedConfigs(updatedConfigs, selectedConfig: file);
+      await _persistImportedConfigs(
+        updatedConfigs,
+        selectedConfig: importedFile,
+      );
       unawaited(_refreshSubscriptions(force: true));
     } catch (e) {
       _showMessage('Error importing file: $e');
@@ -2379,7 +2430,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         return;
       }
 
-      await _importConfigFile(file);
+      await _importConfigFile(file, copyToManagedStorage: true);
     } catch (e) {
       _showMessage('Error importing file: $e');
     }
