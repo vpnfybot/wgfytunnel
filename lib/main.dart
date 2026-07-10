@@ -2420,7 +2420,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       final picked = await openFile();
 
       if (picked == null) {
-        _showMessage(l10n.fileSelectionCancelled);
+        unawaited(_showAndroidToast(l10n.fileSelectionCancelled));
         return;
       }
 
