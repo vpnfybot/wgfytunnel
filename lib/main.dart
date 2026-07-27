@@ -664,6 +664,7 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   static const String _playStoreAppId = 'com.wgfytunnel';
+  static const Duration _appUpdateCheckDelay = Duration(seconds: 5);
   static const MethodChannel _wireGuardChannel = MethodChannel(
     'wgfytunnel/wireguard',
   );
@@ -695,6 +696,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   int _selectedAppsCount = 0;
   int _selectedDomainsCount = 0;
   bool _hasCheckedForAppUpdate = false;
+  Timer? _appUpdateCheckTimer;
   final Map<String, EndpointCountryInfo?> _countryInfoByLookupKey =
       <String, EndpointCountryInfo?>{};
   Set<String> _countryLookupsInFlight = <String>{};
@@ -714,7 +716,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     _refreshSplitTunnelSelections();
     _refreshTunnelStatus();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_checkForAppUpdateOnLaunch());
+      _scheduleAppUpdateCheck();
     });
   }
 
@@ -723,6 +725,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _statsTimer?.cancel();
     _uptimeTimer?.cancel();
+    _appUpdateCheckTimer?.cancel();
     _subscriptionsRefreshTimer?.cancel();
     _configsListScrollController.dispose();
     super.dispose();
@@ -842,10 +845,34 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     if (state == AppLifecycleState.resumed) {
+      _scheduleAppUpdateCheck();
       _refreshSplitTunnelSelections();
       await _refreshTunnelStatusAndRestoreTime();
       await _refreshSubscriptions();
+    } else {
+      // Require one uninterrupted foreground interval before contacting Play.
+      // This prevents a cold-start race with the Play Store process.
+      _appUpdateCheckTimer?.cancel();
+      _appUpdateCheckTimer = null;
     }
+  }
+
+  void _scheduleAppUpdateCheck() {
+    if (_hasCheckedForAppUpdate ||
+        _appUpdateCheckTimer != null ||
+        !Platform.isAndroid ||
+        !mounted) {
+      return;
+    }
+
+    _appUpdateCheckTimer = Timer(_appUpdateCheckDelay, () {
+      _appUpdateCheckTimer = null;
+      if (!mounted ||
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+        return;
+      }
+      unawaited(_checkForAppUpdateOnLaunch());
+    });
   }
 
   Future<void> _refreshTunnelStatusAndRestoreTime() async {
