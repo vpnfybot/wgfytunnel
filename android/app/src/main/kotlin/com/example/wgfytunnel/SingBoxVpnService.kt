@@ -184,6 +184,21 @@ class SingBoxVpnService : VpnService() {
         updateNotification("Туннель подключен")
     }
 
+    @Synchronized
+    fun currentTrafficStats(): Pair<Long, Long> {
+        val instance = boxInstance ?: return notificationRxTotal to notificationTxTotal
+        val txDelta = runCatching {
+            instance.queryStats(SingBoxConfig.proxyTag, "uplink")
+        }.getOrDefault(0L).coerceAtLeast(0L)
+        val rxDelta = runCatching {
+            instance.queryStats(SingBoxConfig.proxyTag, "downlink")
+        }.getOrDefault(0L).coerceAtLeast(0L)
+
+        notificationTxTotal += txDelta
+        notificationRxTotal += rxDelta
+        return notificationRxTotal to notificationTxTotal
+    }
+
     private fun applyPackageSelection(builder: Builder) {
         when (splitMode) {
             SplitTunnelMode.ALL -> return
@@ -223,10 +238,12 @@ class SingBoxVpnService : VpnService() {
             runCatching {
                 instance.setV2rayStats(SingBoxConfig.proxyTag)
             }
-            boxInstance = instance
+            synchronized(this) {
+                boxInstance = instance
+                notificationRxTotal = 0L
+                notificationTxTotal = 0L
+            }
             connectedAtElapsedRealtime = SystemClock.elapsedRealtime()
-            notificationRxTotal = 0L
-            notificationTxTotal = 0L
             startNotificationUpdates()
             isActive = true
             SingBoxRuntimeState.started(this)
@@ -281,16 +298,7 @@ class SingBoxVpnService : VpnService() {
     }
 
     private fun refreshNotificationStats() {
-        val instance = boxInstance ?: return
-        val txDelta = runCatching {
-            instance.queryStats(SingBoxConfig.proxyTag, "uplink")
-        }.getOrDefault(0L).coerceAtLeast(0L)
-        val rxDelta = runCatching {
-            instance.queryStats(SingBoxConfig.proxyTag, "downlink")
-        }.getOrDefault(0L).coerceAtLeast(0L)
-
-        notificationTxTotal += txDelta
-        notificationRxTotal += rxDelta
+        currentTrafficStats()
         updateNotification("Туннель подключен")
     }
 
@@ -304,15 +312,19 @@ class SingBoxVpnService : VpnService() {
         LibcoreBridge.underlyingNetwork = null
         stopNotificationUpdates()
         connectedAtElapsedRealtime = null
-        notificationRxTotal = 0L
-        notificationTxTotal = 0L
+        val activeInstance = synchronized(this) {
+            notificationRxTotal = 0L
+            notificationTxTotal = 0L
+            val instance = boxInstance
+            boxInstance = null
+            instance
+        }
 
         runCatching {
-            boxInstance?.close()
+            activeInstance?.close()
         }.onFailure {
             Log.w("SingBox", "Failed to close BoxInstance", it)
         }
-        boxInstance = null
 
         runCatching {
             tunInterface?.close()

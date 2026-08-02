@@ -543,6 +543,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     bool centerHeader = false,
     bool closeOnSelection = true,
     ValueChanged<T>? onSelectionChanged,
+    Duration? footerTransitionDuration,
     Widget? Function(
       BuildContext context,
       T currentSelection,
@@ -606,6 +607,15 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
               currentSelection,
               refreshSheet,
             );
+            final footerSection = footer == null
+                ? const SizedBox.shrink(
+                    key: ValueKey('selection-sheet-footer-hidden'),
+                  )
+                : Padding(
+                    key: const ValueKey('selection-sheet-footer-visible'),
+                    padding: const EdgeInsets.only(top: 16),
+                    child: footer,
+                  );
 
             return DecoratedBox(
               decoration: BoxDecoration(
@@ -690,10 +700,32 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                           if (index != values.length - 1)
                             const SizedBox(height: 12),
                         ],
-                        if (footer != null) ...[
-                          const SizedBox(height: 16),
-                          footer,
-                        ],
+                        if (footerBuilder != null)
+                          footerTransitionDuration == null
+                              ? footerSection
+                              : ClipRect(
+                                  child: AnimatedSwitcher(
+                                    duration: footerTransitionDuration,
+                                    switchInCurve: Curves.easeOutCubic,
+                                    switchOutCurve: Curves.easeInCubic,
+                                    transitionBuilder: (child, animation) {
+                                      final slideAnimation = Tween<Offset>(
+                                        begin: const Offset(0, 1),
+                                        end: Offset.zero,
+                                      ).animate(animation);
+
+                                      return SlideTransition(
+                                        position: slideAnimation,
+                                        child: SizeTransition(
+                                          sizeFactor: animation,
+                                          axisAlignment: -1,
+                                          child: child,
+                                        ),
+                                      );
+                                    },
+                                    child: footerSection,
+                                  ),
+                                ),
                       ],
                     ),
                   ),
@@ -773,6 +805,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
       centerHeader: true,
       closeOnSelection: false,
+      footerTransitionDuration: const Duration(milliseconds: 200),
       onSelectionChanged: (selection) {
         setState(() {
           _splitTunnelMode = selection;

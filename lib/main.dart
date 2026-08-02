@@ -665,6 +665,12 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   static const String _playStoreAppId = 'com.wgfytunnel';
   static const Duration _appUpdateCheckDelay = Duration(seconds: 5);
+  static const int _silentConnectionRetryCount = 2;
+  static const Duration _tunnelTrafficWaitTimeout = Duration(seconds: 2);
+  static const Duration _tunnelTrafficPollInterval = Duration(
+    milliseconds: 250,
+  );
+  static const Duration _silentReconnectDelay = Duration(milliseconds: 200);
   static const MethodChannel _wireGuardChannel = MethodChannel(
     'wgfytunnel/wireguard',
   );
@@ -889,13 +895,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         }
       });
       if (connected) {
-        // Попробуем восстановить время подключения
-        final prefs = await SharedPreferences.getInstance();
-        final millis = prefs.getInt(_connectionStartTimeKey);
-        if (millis != null) {
-          _connectionStartTime = DateTime.fromMillisecondsSinceEpoch(millis);
+        if (!_isConnecting && !_isWaitingForTunnelTraffic) {
+          // Попробуем восстановить время подключения
+          final prefs = await SharedPreferences.getInstance();
+          final millis = prefs.getInt(_connectionStartTimeKey);
+          if (millis != null) {
+            _connectionStartTime = DateTime.fromMillisecondsSinceEpoch(millis);
+          }
+          _startStatsPolling(restoreTime: true);
         }
-        _startStatsPolling(restoreTime: true);
       } else {
         _stopStatsPolling();
       }
@@ -2192,7 +2200,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         }
       });
       if (connected) {
-        _startStatsPolling();
+        if (!_isConnecting && !_isWaitingForTunnelTraffic) {
+          _startStatsPolling();
+        }
       } else {
         _stopStatsPolling();
       }
@@ -2253,32 +2263,60 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       if (!mounted || !_isConnected) return;
       final rxBytes = (stats?['rxBytes'] as num?)?.toInt() ?? 0;
       final txBytes = (stats?['txBytes'] as num?)?.toInt() ?? 0;
-      final hasTraffic = rxBytes + txBytes > 0;
-      final hasWaitedForStats =
-          _connectionStartTime != null &&
-          DateTime.now().difference(_connectionStartTime!) >=
-              const Duration(seconds: 2);
       setState(() {
         _rxBytes = rxBytes;
         _txBytes = txBytes;
-        if (_isWaitingForTunnelTraffic && (hasTraffic || hasWaitedForStats)) {
+        if (_isWaitingForTunnelTraffic && rxBytes > 0) {
           _isWaitingForTunnelTraffic = false;
         }
       });
-    } catch (_) {
-      if (!mounted || !_isWaitingForTunnelTraffic) {
-        return;
+    } catch (_) {}
+  }
+
+  Future<bool> _waitForInboundTunnelTraffic(int connectionRevision) async {
+    final stopwatch = Stopwatch()..start();
+
+    while (true) {
+      if (!mounted || connectionRevision != _tunnelStatusRevision) {
+        return false;
       }
 
-      final hasWaitedForStats =
-          _connectionStartTime != null &&
-          DateTime.now().difference(_connectionStartTime!) >=
-              const Duration(seconds: 2);
-      if (hasWaitedForStats) {
+      try {
+        final stats = await _wireGuardChannel
+            .invokeMethod<Map<dynamic, dynamic>>('getWireGuardStats');
+        if (!mounted || connectionRevision != _tunnelStatusRevision) {
+          return false;
+        }
+
+        final rxBytes = (stats?['rxBytes'] as num?)?.toInt() ?? 0;
+        final txBytes = (stats?['txBytes'] as num?)?.toInt() ?? 0;
         setState(() {
-          _isWaitingForTunnelTraffic = false;
+          _rxBytes = rxBytes;
+          _txBytes = txBytes;
         });
+        if (rxBytes > 0) {
+          return true;
+        }
+      } catch (_) {
+        // A transient stats error is treated like a missing response so the
+        // current attempt can use the rest of its confirmation window.
       }
+
+      final remainingMilliseconds =
+          _tunnelTrafficWaitTimeout.inMilliseconds -
+          stopwatch.elapsedMilliseconds;
+      if (remainingMilliseconds <= 0) {
+        return false;
+      }
+
+      await Future<void>.delayed(
+        Duration(
+          milliseconds:
+              remainingMilliseconds < _tunnelTrafficPollInterval.inMilliseconds
+              ? remainingMilliseconds
+              : _tunnelTrafficPollInterval.inMilliseconds,
+        ),
+      );
     }
   }
 
@@ -2500,7 +2538,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       return;
     }
 
-    _tunnelStatusRevision += 1;
+    final connectionRevision = ++_tunnelStatusRevision;
     setState(() {
       _isConnecting = true;
       _isWaitingForTunnelTraffic = false;
@@ -2537,23 +2575,65 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     try {
       // Use sing-box backend when domain routing is needed (include/exclude domains)
       final useDomainRouting = domainMode != SplitTunnelDomainMode.all;
+      final connectArguments = <String, Object>{
+        'filePath': _selectedConf!.path,
+        'splitMode': splitMode.wireValue,
+        'selectedPackages': selectedPackages.toList()..sort(),
+        'domainMode': domainMode.wireValue,
+        'domainList': domainList,
+        'useDomainRouting': useDomainRouting,
+      };
+      Map<dynamic, dynamic>? status;
+      var connected = false;
 
-      final status = await _wireGuardChannel
-          .invokeMethod<Map<dynamic, dynamic>>('connectWireGuard', {
-            'filePath': _selectedConf!.path,
-            'splitMode': splitMode.wireValue,
-            'selectedPackages': selectedPackages.toList()..sort(),
-            'domainMode': domainMode.wireValue,
-            'domainList': domainList,
-            'useDomainRouting': useDomainRouting,
-          });
+      for (var attempt = 0; attempt <= _silentConnectionRetryCount; attempt++) {
+        if (attempt > 0) {
+          await _wireGuardChannel.invokeMethod<Map<dynamic, dynamic>>(
+            'disconnectWireGuard',
+          );
+          if (!mounted || connectionRevision != _tunnelStatusRevision) {
+            return;
+          }
 
-      if (!mounted) return;
+          await Future<void>.delayed(_silentReconnectDelay);
+          if (!mounted || connectionRevision != _tunnelStatusRevision) {
+            return;
+          }
+        }
 
-      final connected = status?['connected'] == true;
+        status = await _wireGuardChannel.invokeMethod<Map<dynamic, dynamic>>(
+          'connectWireGuard',
+          connectArguments,
+        );
+        if (!mounted || connectionRevision != _tunnelStatusRevision) {
+          return;
+        }
+
+        connected = status?['connected'] == true;
+        setState(() {
+          _isConnected = connected;
+          _isWaitingForTunnelTraffic = connected;
+          _rxBytes = 0;
+          _txBytes = 0;
+        });
+        if (!connected) {
+          continue;
+        }
+
+        final receivedInboundTraffic = await _waitForInboundTunnelTraffic(
+          connectionRevision,
+        );
+        if (!mounted || connectionRevision != _tunnelStatusRevision) {
+          return;
+        }
+        if (receivedInboundTraffic) {
+          break;
+        }
+      }
+
       setState(() {
         _isConnected = connected;
-        _isWaitingForTunnelTraffic = connected;
+        _isWaitingForTunnelTraffic = false;
       });
       if (connected) {
         unawaited(HapticFeedback.lightImpact());
@@ -2568,23 +2648,27 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _showMessage(_translatedRuntimeMessage(message));
       }
     } on PlatformException catch (e) {
-      if (mounted) {
+      if (mounted && connectionRevision == _tunnelStatusRevision) {
         setState(() {
+          _isConnected = false;
           _isWaitingForTunnelTraffic = false;
         });
+        _stopStatsPolling();
       }
       _showMessage(
         '${l10n.failedStartTunnel}: ${_translatedRuntimeMessage(e.message ?? e.code)}',
       );
     } catch (e) {
-      if (mounted) {
+      if (mounted && connectionRevision == _tunnelStatusRevision) {
         setState(() {
+          _isConnected = false;
           _isWaitingForTunnelTraffic = false;
         });
+        _stopStatsPolling();
       }
       _showMessage('${l10n.failedStartTunnel}: $e');
     } finally {
-      if (mounted) {
+      if (mounted && connectionRevision == _tunnelStatusRevision) {
         setState(() {
           _isConnecting = false;
         });

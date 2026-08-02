@@ -126,11 +126,20 @@ class MainActivity : FlutterActivity() {
 					"getWireGuardStats" -> {
 						executor.execute {
 							try {
-								val stats = backend.getStatistics(tunnel)
-								val payload = mapOf(
-									"rxBytes" to stats.totalRx(),
-									"txBytes" to stats.totalTx(),
-								)
+								val payload = if (singBoxManager.isRunning) {
+									val (rxBytes, txBytes) =
+										LibcoreBridge.currentVpnService?.currentTrafficStats() ?: (0L to 0L)
+									mapOf(
+										"rxBytes" to rxBytes,
+										"txBytes" to txBytes,
+									)
+								} else {
+									val stats = backend.getStatistics(tunnel)
+									mapOf(
+										"rxBytes" to stats.totalRx(),
+										"txBytes" to stats.totalTx(),
+									)
+								}
 								runOnUiThread { result.success(payload) }
 							} catch (e: Exception) {
 								runOnUiThread { result.success(mapOf("rxBytes" to 0L, "txBytes" to 0L)) }
