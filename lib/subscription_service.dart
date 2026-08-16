@@ -408,7 +408,7 @@ class SubscriptionService {
     const initializationSettings = InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     );
-    await _notificationsPlugin.initialize(initializationSettings);
+    await _notificationsPlugin.initialize(settings: initializationSettings);
 
     const notificationChannel = AndroidNotificationChannel(
       _notificationChannelId,

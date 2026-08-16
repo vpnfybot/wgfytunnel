@@ -100,7 +100,7 @@ android {
 
 dependencies {
     implementation("com.zaneschepke:amneziawg-android:2.3.7")
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 flutter {

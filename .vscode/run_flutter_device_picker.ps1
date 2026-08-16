@@ -1,15 +1,59 @@
 param(
   [switch]$ListOnly,
+  [string]$DeviceId,
   [Parameter(ValueFromRemainingArguments = $true)]
   [string[]]$FlutterRunArgs
 )
 
 $ErrorActionPreference = 'Stop'
+$FlutterRunArgs = @(
+  (@($FlutterRunArgs) + @($args)) |
+    Where-Object { $_ -ne $null -and $_ -ne '' }
+)
+
+$normalizedFlutterRunArgs = New-Object System.Collections.Generic.List[string]
+for ($argumentIndex = 0; $argumentIndex -lt $FlutterRunArgs.Count; $argumentIndex++) {
+  $argument = [string]$FlutterRunArgs[$argumentIndex]
+  if ($argument -eq '-d' -or $argument -eq '--device-id') {
+    if ($argumentIndex + 1 -lt $FlutterRunArgs.Count) {
+      $DeviceId = [string]$FlutterRunArgs[$argumentIndex + 1]
+      $argumentIndex++
+      continue
+    }
+  }
+
+  if ($argument -like '--device-id=*') {
+    $DeviceId = $argument.Substring('--device-id='.Length)
+    continue
+  }
+
+  $normalizedFlutterRunArgs.Add($argument)
+}
+$FlutterRunArgs = @($normalizedFlutterRunArgs)
 
 $sdkRoot = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
 $flutterPath = Join-Path $env:USERPROFILE 'development\flutter\bin\flutter.bat'
 if (-not (Test-Path $flutterPath)) {
-  $flutterPath = 'flutter'
+  $flutterCommand = Get-Command flutter.bat -ErrorAction SilentlyContinue |
+    Where-Object { $_.Source -notlike '*\.vscode\bin\flutter.bat' } |
+    Select-Object -First 1
+  if ($flutterCommand) {
+    $flutterPath = $flutterCommand.Source
+  } else {
+    $flutterPath = 'flutter'
+  }
+}
+
+$flutterRoot = $null
+$flutterDartPath = $null
+$flutterSnapshotPath = $null
+$flutterPackagesPath = $null
+$script:FlutterExitCode = 0
+if (Test-Path $flutterPath) {
+  $flutterRoot = (Resolve-Path (Join-Path (Split-Path $flutterPath -Parent) '..')).Path
+  $flutterDartPath = Join-Path $flutterRoot 'bin\cache\dart-sdk\bin\dart.exe'
+  $flutterSnapshotPath = Join-Path $flutterRoot 'bin\cache\flutter_tools.snapshot'
+  $flutterPackagesPath = Join-Path $flutterRoot 'packages\flutter_tools\.dart_tool\package_config.json'
 }
 
 $adbPath = Join-Path $sdkRoot 'platform-tools\adb.exe'
@@ -46,6 +90,39 @@ function Invoke-Adb {
       ExitCode = 1
     }
   }
+}
+
+function Invoke-FlutterRun {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$DeviceId,
+    [string[]]$Arguments = @()
+  )
+
+  if (
+    $flutterDartPath -and
+    (Test-Path $flutterDartPath) -and
+    (Test-Path $flutterSnapshotPath) -and
+    (Test-Path $flutterPackagesPath)
+  ) {
+    $env:FLUTTER_ROOT = $flutterRoot
+    $flutterGitPath = Join-Path $flutterRoot 'bin\mingit\cmd'
+    if (Test-Path $flutterGitPath) {
+      $env:PATH = "$flutterGitPath;$env:PATH"
+    }
+
+    & $flutterDartPath `
+      "--packages=$flutterPackagesPath" `
+      $flutterSnapshotPath `
+      run `
+      -d $DeviceId `
+      @Arguments
+    $script:FlutterExitCode = $LASTEXITCODE
+    return
+  }
+
+  & $flutterPath run -d $DeviceId @Arguments
+  $script:FlutterExitCode = $LASTEXITCODE
 }
 
 function Get-FlutterAndroidDevices {
@@ -204,9 +281,15 @@ function Start-AndroidEmulator {
   Start-Process -FilePath $emulatorPath -ArgumentList $emulatorArgs | Out-Null
 }
 
+if (-not [string]::IsNullOrWhiteSpace($DeviceId)) {
+  Write-Host ("Starting app on explicitly selected device: {0}" -f $DeviceId)
+  Invoke-FlutterRun -DeviceId $DeviceId -Arguments $FlutterRunArgs
+  exit $script:FlutterExitCode
+}
+
 Write-Host 'Detecting Android targets...'
 
-$runningDevices = Get-FlutterAndroidDevices
+$runningDevices = @(Get-FlutterAndroidDevices)
 $runningEmulatorByAvd = @{}
 $targets = New-Object System.Collections.Generic.List[object]
 
@@ -242,21 +325,23 @@ foreach ($device in $runningDevices) {
   })
 }
 
-$availableEmulators = Get-AvailableAndroidEmulators
-foreach ($emulator in $availableEmulators) {
-  $emulatorId = [string]$emulator.Id
-  if ($runningEmulatorByAvd.ContainsKey($emulatorId)) {
-    continue
-  }
+if ($runningDevices.Count -eq 0) {
+  $availableEmulators = Get-AvailableAndroidEmulators
+  foreach ($emulator in $availableEmulators) {
+    $emulatorId = [string]$emulator.Id
+    if ($runningEmulatorByAvd.ContainsKey($emulatorId)) {
+      continue
+    }
 
-  $targets.Add([pscustomobject]@{
-    Kind = 'available-emulator'
-    DisplayName = [string]$emulator.Name
-    Description = 'android emulator, launch on selection'
-    DeviceId = $null
-    AvdId = $emulatorId
-    Platform = [string]$emulator.Platform
-  })
+    $targets.Add([pscustomobject]@{
+      Kind = 'available-emulator'
+      DisplayName = [string]$emulator.Name
+      Description = 'android emulator, launch on selection'
+      DeviceId = $null
+      AvdId = $emulatorId
+      Platform = [string]$emulator.Platform
+    })
+  }
 }
 
 if ($targets.Count -eq 0) {
@@ -280,10 +365,20 @@ if ($ListOnly) {
   return
 }
 
+if ($runningDevices.Count -eq 1) {
+  $selectedTarget = $targets[0]
+  $selectedDeviceId = [string]$selectedTarget.DeviceId
+  Write-Host ''
+  Write-Host ("One Android device detected. Starting app on: {0} ({1})" -f $selectedTarget.DisplayName, $selectedDeviceId)
+
+  Invoke-FlutterRun -DeviceId $selectedDeviceId -Arguments $FlutterRunArgs
+  exit $script:FlutterExitCode
+}
+
 Write-Host ''
 $selectedIndex = $null
 while ($null -eq $selectedIndex) {
-  $inputValue = Read-Host 'Enter target number'
+  $inputValue = Read-Host 'Enter target number (two or more Android devices connected)'
   $parsedIndex = 0
   if (-not [int]::TryParse($inputValue, [ref]$parsedIndex)) {
     Write-Host 'Please enter a valid number.' -ForegroundColor Yellow
@@ -321,5 +416,5 @@ if ($selectedTarget.Kind -eq 'available-emulator') {
 Write-Host ''
 Write-Host ("Starting app on: {0} ({1})" -f $selectedTarget.DisplayName, $selectedDeviceId)
 
-& $flutterPath run -d $selectedDeviceId @FlutterRunArgs
-exit $LASTEXITCODE
+Invoke-FlutterRun -DeviceId $selectedDeviceId -Arguments $FlutterRunArgs
+exit $script:FlutterExitCode

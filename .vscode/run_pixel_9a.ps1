@@ -164,4 +164,6 @@ if ($LaunchOnly) {
     return
 }
 
-& $flutter run -d $serial
+$pickerScript = Join-Path $PSScriptRoot 'run_flutter_device_picker.ps1'
+& powershell -NoProfile -ExecutionPolicy Bypass -File $pickerScript -DeviceId $serial
+exit $LASTEXITCODE

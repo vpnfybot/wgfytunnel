@@ -45,11 +45,13 @@
 		{
 			"label": "Run Flutter app on connected Android device",
 			"type": "shell",
-			"command": "${env:USERPROFILE}\\development\\flutter\\bin\\flutter.bat",
+			"command": "powershell",
 			"args": [
-				"run",
-				"-d",
-				"android"
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\.vscode\\run_flutter_device_picker.ps1"
 			],
 			"options": {
 				"env": {

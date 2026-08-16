@@ -18,15 +18,12 @@ if not exist "%REAL_FLUTTER%" (
 if /I "%~1"=="run" (
   call :check_run_args %*
   if defined SHOULD_PICK_TARGET (
-    call :run_with_picker %*
-    set "EXIT_CODE=!ERRORLEVEL!"
-    endlocal & exit /b %EXIT_CODE%
+    goto run_with_picker
   )
 )
 
-call "%REAL_FLUTTER%" %*
-set "EXIT_CODE=!ERRORLEVEL!"
-endlocal & exit /b %EXIT_CODE%
+"%REAL_FLUTTER%" %*
+exit /b %ERRORLEVEL%
 
 :run_with_picker
 set "PICKER_SCRIPT=%~dp0..\run_flutter_device_picker.ps1"
@@ -40,16 +37,14 @@ shift
 goto picker_arg_loop
 
 :picker_args_done
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PICKER_SCRIPT%" !PICKER_ARGS!
-exit /b !ERRORLEVEL!
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PICKER_SCRIPT%" !PICKER_ARGS! || call cmd.exe /c "@if %%ERRORLEVEL%% EQU -1073741510 (exit 9009) else exit %%ERRORLEVEL%%"
+exit /b %ERRORLEVEL%
 
 :check_run_args
 set "SHOULD_PICK_TARGET=1"
 
 :arg_loop
 if "%~1"=="" exit /b 0
-if /I "%~1"=="-d" set "SHOULD_PICK_TARGET=" & exit /b 0
-if /I "%~1"=="--device-id" set "SHOULD_PICK_TARGET=" & exit /b 0
 if /I "%~1"=="-h" set "SHOULD_PICK_TARGET=" & exit /b 0
 if /I "%~1"=="--help" set "SHOULD_PICK_TARGET=" & exit /b 0
 if /I "%~1"=="--version" set "SHOULD_PICK_TARGET=" & exit /b 0
