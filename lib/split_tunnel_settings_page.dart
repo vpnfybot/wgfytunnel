@@ -53,6 +53,20 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   Timer? _reconnectBannerTimer;
   Completer<void>? _appsLoadCompleter;
 
+  Widget _buildSheetDragHandle(ThemeData theme) {
+    return Center(
+      child: Container(
+        width: 32,
+        height: 4,
+        margin: const EdgeInsets.only(bottom: 14),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.42),
+          borderRadius: BorderRadius.circular(999),
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -541,6 +555,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     double optionScale = 1.0,
     Duration? delayedCloseDuration,
     bool centerHeader = false,
+    bool showInternalDragHandle = true,
     bool closeOnSelection = true,
     ValueChanged<T>? onSelectionChanged,
     Duration? footerTransitionDuration,
@@ -642,6 +657,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (showInternalDragHandle)
+                          _buildSheetDragHandle(theme),
                         Text(
                           title,
                           textAlign: centerHeader
@@ -804,6 +821,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       showSelectionIndicator: false,
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
       centerHeader: true,
+      showInternalDragHandle: true,
       closeOnSelection: false,
       footerTransitionDuration: const Duration(milliseconds: 200),
       onSelectionChanged: (selection) {
@@ -845,6 +863,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       showSelectionIndicator: false,
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
       centerHeader: true,
+      showInternalDragHandle: true,
       closeOnSelection: false,
       onSelectionChanged: (selection) {
         setState(() {
@@ -1523,6 +1542,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        _buildSheetDragHandle(theme),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 20),
                           child: Column(
@@ -1695,6 +1715,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      _buildSheetDragHandle(theme),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Column(

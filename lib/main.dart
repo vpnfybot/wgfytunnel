@@ -478,28 +478,31 @@ class InstalledApp {
 }
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await AppLogService.initialize();
-
-  FlutterError.onError = (details) {
-    FlutterError.presentError(details);
-    unawaited(AppLogService.logFlutterError(details));
-  };
-
-  PlatformDispatcher.instance.onError = (error, stackTrace) {
-    unawaited(
-      AppLogService.logError(
-        'Unhandled platform dispatcher error',
-        error: error,
-        stackTrace: stackTrace,
-        origin: 'platform_dispatcher',
-      ),
-    );
-    return true;
-  };
-
   await runZonedGuarded(
     () async {
+      // The binding and runApp must be initialized in the same zone. Calling
+      // ensureInitialized before runZonedGuarded causes Flutter's Zone mismatch
+      // assertion during runApp on startup.
+      WidgetsFlutterBinding.ensureInitialized();
+      await AppLogService.initialize();
+
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        unawaited(AppLogService.logFlutterError(details));
+      };
+
+      PlatformDispatcher.instance.onError = (error, stackTrace) {
+        unawaited(
+          AppLogService.logError(
+            'Unhandled platform dispatcher error',
+            error: error,
+            stackTrace: stackTrace,
+            origin: 'platform_dispatcher',
+          ),
+        );
+        return true;
+      };
+
       if (Platform.isAndroid) {
         try {
           await SubscriptionService.initializeAndroidAutomation();
