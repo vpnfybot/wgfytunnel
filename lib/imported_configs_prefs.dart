@@ -1,18 +1,23 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'endpoint_country_service.dart';
 
 class ImportedConfigsPrefs {
   static const String _pathsKey = 'imported_config_paths';
   static const String _pinnedPathsKey = 'pinned_config_paths';
   static const String _selectedPathKey = 'selected_config_path';
-  static final Future<SharedPreferences> _prefs = SharedPreferences.getInstance();
+  static const String _countryInfoCacheKey = 'endpoint_country_info_cache';
+  static final Future<SharedPreferences> _prefs =
+      SharedPreferences.getInstance();
 
   static Future<SharedPreferences> _instance() => _prefs;
 
-  static Future<({
-    List<String> paths,
-    List<String> pinnedPaths,
-    String? selectedPath,
-  })> loadState() async {
+  static Future<
+    ({List<String> paths, List<String> pinnedPaths, String? selectedPath})
+  >
+  loadState() async {
     final prefs = await _instance();
     return (
       paths: prefs.getStringList(_pathsKey) ?? <String>[],
@@ -54,5 +59,60 @@ class ImportedConfigsPrefs {
     }
 
     await prefs.setString(_selectedPathKey, path);
+  }
+
+  static Future<Map<String, EndpointCountryInfo>> loadCountryInfoCache() async {
+    final prefs = await _instance();
+    final rawCache = prefs.getString(_countryInfoCacheKey);
+    if (rawCache == null || rawCache.isEmpty) {
+      return <String, EndpointCountryInfo>{};
+    }
+
+    try {
+      final decodedCache = jsonDecode(rawCache);
+      if (decodedCache is! Map) {
+        return <String, EndpointCountryInfo>{};
+      }
+
+      final countryInfoByLookupKey = <String, EndpointCountryInfo>{};
+      for (final entry in decodedCache.entries) {
+        if (entry.key is! String || entry.value is! Map) {
+          continue;
+        }
+
+        final value = entry.value as Map;
+        final countryCode = value['countryCode'];
+        final countryName = value['countryName'];
+        if (countryCode is! String || countryName is! String) {
+          continue;
+        }
+        if (countryCode.trim().isEmpty || countryName.trim().isEmpty) {
+          continue;
+        }
+
+        countryInfoByLookupKey[entry.key as String] = EndpointCountryInfo(
+          countryCode: countryCode,
+          countryName: countryName,
+        );
+      }
+
+      return countryInfoByLookupKey;
+    } catch (_) {
+      return <String, EndpointCountryInfo>{};
+    }
+  }
+
+  static Future<void> saveCountryInfoCache(
+    Map<String, EndpointCountryInfo> countryInfoByLookupKey,
+  ) async {
+    final prefs = await _instance();
+    final serializedCache = <String, dynamic>{
+      for (final entry in countryInfoByLookupKey.entries)
+        entry.key: <String, String>{
+          'countryCode': entry.value.countryCode,
+          'countryName': entry.value.countryName,
+        },
+    };
+    await prefs.setString(_countryInfoCacheKey, jsonEncode(serializedCache));
   }
 }

@@ -1612,6 +1612,18 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       ..._configEndpointsByPath,
       file.path: _configEndpointText(updatedParsedConfig),
     };
+    final previousLookupKey = EndpointCountryService.lookupKeyForEndpoint(
+      _configEndpointsByPath[file.path] ?? '',
+    );
+    final updatedLookupKey = EndpointCountryService.lookupKeyForEndpoint(
+      updatedEndpointsByPath[file.path] ?? '',
+    );
+    final updatedCountriesByPath = Map<String, EndpointCountryInfo>.from(
+      _configCountriesByPath,
+    );
+    if (previousLookupKey != updatedLookupKey) {
+      updatedCountriesByPath.remove(file.path);
+    }
     final updatedIsAmneziaByPath = <String, bool>{
       ..._configIsAmneziaByPath,
       file.path: _isAmneziaConfig(updatedParsedConfig),
@@ -1621,6 +1633,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       setState(() {
         _configEndpointsByPath = updatedEndpointsByPath;
         _configIsAmneziaByPath = updatedIsAmneziaByPath;
+        _configCountriesByPath = updatedCountriesByPath;
         if (_selectedConf?.path == file.path) {
           _parsedConf = updatedParsedConfig;
         }
@@ -1710,7 +1723,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       return;
     }
 
-    if (_countryInfoByLookupKey.containsKey(lookupKey)) {
+    final cachedCountryInfo = _countryInfoByLookupKey[lookupKey];
+    if (cachedCountryInfo != null) {
       if (!mounted) {
         return;
       }
@@ -1718,7 +1732,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       setState(() {
         _configCountriesByPath = _updatedCountriesByPathForLookupKey(
           lookupKey,
-          _countryInfoByLookupKey[lookupKey],
+          cachedCountryInfo,
           endpointsByPath: endpointsByPath,
         );
       });
@@ -1739,7 +1753,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final countryInfo = await EndpointCountryService.lookupCountryForEndpoint(
       endpointText,
     );
-    _countryInfoByLookupKey[lookupKey] = countryInfo;
+    if (countryInfo != null) {
+      _countryInfoByLookupKey[lookupKey] = countryInfo;
+      unawaited(_persistCountryInfoCache());
+    } else {
+      _countryInfoByLookupKey.remove(lookupKey);
+    }
 
     if (!mounted) {
       return;
@@ -1754,6 +1773,18 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         endpointsByPath: endpointsByPath,
       );
     });
+  }
+
+  Future<void> _persistCountryInfoCache() {
+    final countryInfoByLookupKey = <String, EndpointCountryInfo>{};
+    for (final entry in _countryInfoByLookupKey.entries) {
+      final countryInfo = entry.value;
+      if (countryInfo != null) {
+        countryInfoByLookupKey[entry.key] = countryInfo;
+      }
+    }
+
+    return ImportedConfigsPrefs.saveCountryInfoCache(countryInfoByLookupKey);
   }
 
   Map<String, EndpointCountryInfo> _updatedCountriesByPathForLookupKey(
@@ -2004,6 +2035,17 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _restoreImportedConfigs() async {
+    final persistedCountryInfo =
+        await ImportedConfigsPrefs.loadCountryInfoCache();
+    _countryInfoByLookupKey
+      ..clear()
+      ..addEntries(
+        persistedCountryInfo.entries.map(
+          (entry) =>
+              MapEntry<String, EndpointCountryInfo?>(entry.key, entry.value),
+        ),
+      );
+
     final savedState = await ImportedConfigsPrefs.loadState();
     final savedPaths = savedState.paths;
     final savedPinnedPaths = savedState.pinnedPaths.toSet();
