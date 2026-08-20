@@ -865,6 +865,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       centerHeader: true,
       showInternalDragHandle: true,
       closeOnSelection: false,
+      footerTransitionDuration: const Duration(milliseconds: 200),
       onSelectionChanged: (selection) {
         setState(() {
           _domainMode = selection;
