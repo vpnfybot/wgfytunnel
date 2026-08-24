@@ -1,6 +1,9 @@
 Map<String, dynamic> parseWireguardConfig(String content) {
   final lines = content.split(RegExp(r'\r?\n'));
-  final Map<String, dynamic> result = {'interfaces': <Map<String, String>>[], 'peers': <Map<String, String>>[]};
+  final Map<String, dynamic> result = {
+    'interfaces': <Map<String, String>>[],
+    'peers': <Map<String, String>>[],
+  };
 
   Map<String, String>? currentInterface;
   Map<String, String>? currentPeer;
@@ -33,27 +36,31 @@ Map<String, dynamic> parseWireguardConfig(String content) {
     if (idx <= 0) continue;
     final key = line.substring(0, idx).trim();
     final value = line.substring(idx + 1).trim();
+    if (key.isEmpty) continue;
 
     if (currentSection == 'interface' && currentInterface != null) {
       currentInterface[key] = value;
     } else if (currentSection == 'peer' && currentPeer != null) {
       currentPeer[key] = value;
-    } else {
+    } else if (currentSection == null) {
       // top-level/global keys
-      final global = result.putIfAbsent('global', () => <String, String>{}) as Map<String, String>;
+      final global =
+          result.putIfAbsent('global', () => <String, String>{})
+              as Map<String, String>;
       global[key] = value;
     }
   }
 
   // Basic validation: interface with PrivateKey and Address is considered valid
-  var isValid = false;
-  final interfaces = result['interfaces'] as List;
-  if (interfaces.isNotEmpty) {
-    final if0 = interfaces.first as Map<String, String>;
-    if (if0.containsKey('PrivateKey') && if0.containsKey('Address')) {
-      isValid = true;
-    }
-  }
+  final interfaces = result['interfaces'] as List<Map<String, String>>;
+  final isValid = interfaces.any((interface) {
+    final privateKey = interface['PrivateKey'];
+    final address = interface['Address'];
+    return privateKey != null &&
+        privateKey.trim().isNotEmpty &&
+        address != null &&
+        address.trim().isNotEmpty;
+  });
   result['isValid'] = isValid;
   return result;
 }

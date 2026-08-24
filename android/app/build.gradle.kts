@@ -3,8 +3,7 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    // The Flutter Gradle Plugin must be applied after the Android plugin.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -42,10 +41,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
-
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.wgfytunnel"
@@ -73,14 +68,14 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.setSrcDirs(
+            java.directories.addAll(
                 listOf(
                     "src/main/java",
-                    file("../../NEKOBOX/libcore/java/go"),
-                    file("../../NEKOBOX/libcore/java/libcore"),
+                    "../../NEKOBOX/libcore/java/go",
+                    "../../NEKOBOX/libcore/java/libcore",
                 ),
             )
-            jniLibs.srcDir("src/main/jniLibs")
+            jniLibs.directories.add("src/main/jniLibs")
         }
     }
 
@@ -98,9 +93,15 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
 dependencies {
     implementation("com.zaneschepke:amneziawg-android:2.3.7")
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 
 flutter {

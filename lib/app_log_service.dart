@@ -26,7 +26,9 @@ class AppLogService {
     return _enqueueWrite(() async {
       final file = await _ensureLogFile();
       final buffer = StringBuffer()
-        ..writeln('[${DateTime.now().toIso8601String()}] ERROR ${origin.toUpperCase()}')
+        ..writeln(
+          '[${DateTime.now().toIso8601String()}] ERROR ${origin.toUpperCase()}',
+        )
         ..writeln(message);
 
       if (error != null) {
@@ -58,6 +60,12 @@ class AppLogService {
   }
 
   static Future<String> readLogs() async {
+    try {
+      await _writeQueue;
+    } catch (_) {
+      // A failed write must not prevent the logs page from opening.
+    }
+
     final file = await _ensureLogFile();
     if (!await file.exists()) {
       return '';
@@ -100,10 +108,7 @@ class AppLogService {
 
   static Future<void> _appendAndTrim(File file, String entry) async {
     final existingBytes = await file.readAsBytes();
-    final updatedBytes = <int>[
-      ...existingBytes,
-      ...utf8.encode(entry),
-    ];
+    final updatedBytes = <int>[...existingBytes, ...utf8.encode(entry)];
     final trimmedBytes = _trimToMaxBytes(updatedBytes);
     await file.writeAsBytes(trimmedBytes, flush: true);
   }

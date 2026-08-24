@@ -735,7 +735,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
                                         position: slideAnimation,
                                         child: SizeTransition(
                                           sizeFactor: animation,
-                                          axisAlignment: -1,
+                                          alignment: AlignmentDirectional.topStart,
                                           child: child,
                                         ),
                                       );

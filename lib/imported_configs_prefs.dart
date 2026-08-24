@@ -11,6 +11,7 @@ class ImportedConfigsPrefs {
   static const String _countryInfoCacheKey = 'endpoint_country_info_cache';
   static final Future<SharedPreferences> _prefs =
       SharedPreferences.getInstance();
+  static Future<void> _writeQueue = Future<void>.value();
 
   static Future<SharedPreferences> _instance() => _prefs;
 
@@ -31,9 +32,11 @@ class ImportedConfigsPrefs {
     return prefs.getStringList(_pathsKey) ?? <String>[];
   }
 
-  static Future<void> savePaths(List<String> paths) async {
-    final prefs = await _instance();
-    await prefs.setStringList(_pathsKey, paths);
+  static Future<void> savePaths(List<String> paths) {
+    return _enqueueWrite(() async {
+      final prefs = await _instance();
+      await prefs.setStringList(_pathsKey, paths);
+    });
   }
 
   static Future<List<String>> loadPinnedPaths() async {
@@ -41,9 +44,11 @@ class ImportedConfigsPrefs {
     return prefs.getStringList(_pinnedPathsKey) ?? <String>[];
   }
 
-  static Future<void> savePinnedPaths(List<String> paths) async {
-    final prefs = await _instance();
-    await prefs.setStringList(_pinnedPathsKey, paths);
+  static Future<void> savePinnedPaths(List<String> paths) {
+    return _enqueueWrite(() async {
+      final prefs = await _instance();
+      await prefs.setStringList(_pinnedPathsKey, paths);
+    });
   }
 
   static Future<String?> loadSelectedPath() async {
@@ -51,14 +56,33 @@ class ImportedConfigsPrefs {
     return prefs.getString(_selectedPathKey);
   }
 
-  static Future<void> saveSelectedPath(String? path) async {
-    final prefs = await _instance();
-    if (path == null || path.isEmpty) {
-      await prefs.remove(_selectedPathKey);
-      return;
-    }
+  static Future<void> saveSelectedPath(String? path) {
+    return _enqueueWrite(() async {
+      final prefs = await _instance();
+      if (path == null || path.isEmpty) {
+        await prefs.remove(_selectedPathKey);
+        return;
+      }
 
-    await prefs.setString(_selectedPathKey, path);
+      await prefs.setString(_selectedPathKey, path);
+    });
+  }
+
+  static Future<void> saveState({
+    required List<String> paths,
+    required List<String> pinnedPaths,
+    String? selectedPath,
+  }) {
+    return _enqueueWrite(() async {
+      final prefs = await _instance();
+      await prefs.setStringList(_pathsKey, paths);
+      await prefs.setStringList(_pinnedPathsKey, pinnedPaths);
+      if (selectedPath == null || selectedPath.isEmpty) {
+        await prefs.remove(_selectedPathKey);
+      } else {
+        await prefs.setString(_selectedPathKey, selectedPath);
+      }
+    });
   }
 
   static Future<Map<String, EndpointCountryInfo>> loadCountryInfoCache() async {
@@ -104,8 +128,7 @@ class ImportedConfigsPrefs {
 
   static Future<void> saveCountryInfoCache(
     Map<String, EndpointCountryInfo> countryInfoByLookupKey,
-  ) async {
-    final prefs = await _instance();
+  ) {
     final serializedCache = <String, dynamic>{
       for (final entry in countryInfoByLookupKey.entries)
         entry.key: <String, String>{
@@ -113,6 +136,14 @@ class ImportedConfigsPrefs {
           'countryName': entry.value.countryName,
         },
     };
-    await prefs.setString(_countryInfoCacheKey, jsonEncode(serializedCache));
+    return _enqueueWrite(() async {
+      final prefs = await _instance();
+      await prefs.setString(_countryInfoCacheKey, jsonEncode(serializedCache));
+    });
+  }
+
+  static Future<void> _enqueueWrite(Future<void> Function() action) {
+    _writeQueue = _writeQueue.catchError((_) {}).then((_) => action());
+    return _writeQueue;
   }
 }

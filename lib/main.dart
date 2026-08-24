@@ -695,10 +695,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   bool _isLoadingImportedConfigs = true;
   int _rxBytes = 0;
   int _txBytes = 0;
-  Timer? _statsTimer;
   DateTime? _connectionStartTime;
   static const String _connectionStartTimeKey = 'connectionStartTime';
   Timer? _uptimeTimer;
+  int _statsPollingRevision = 0;
+  bool _statsRequestInFlight = false;
   int _tunnelStatusRevision = 0;
   SplitTunnelMode _splitTunnelMode = SplitTunnelMode.all;
   SplitTunnelDomainMode _splitTunnelDomainMode = SplitTunnelDomainMode.all;
@@ -711,6 +712,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Set<String> _countryLookupsInFlight = <String>{};
   Timer? _subscriptionsRefreshTimer;
   Future<void>? _subscriptionsRefreshInFlight;
+  Future<void>? _importedConfigsRestoreFuture;
   final ScrollController _configsListScrollController = ScrollController();
   bool _wasConfigListReorderedForActiveTunnel = false;
   double? _lastConfigListActiveScrollTarget;
@@ -720,7 +722,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_restoreStoredSubscriptionState());
-    unawaited(_restoreImportedConfigs());
+    final restoreFuture = _restoreImportedConfigs();
+    _importedConfigsRestoreFuture = restoreFuture;
+    unawaited(restoreFuture);
     _startSubscriptionsRefreshTimer();
     _refreshSplitTunnelSelections();
     _refreshTunnelStatus();
@@ -732,7 +736,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _statsTimer?.cancel();
     _uptimeTimer?.cancel();
     _appUpdateCheckTimer?.cancel();
     _subscriptionsRefreshTimer?.cancel();
@@ -905,7 +908,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
           if (millis != null) {
             _connectionStartTime = DateTime.fromMillisecondsSinceEpoch(millis);
           }
-          _startStatsPolling(restoreTime: true);
+          if (!mounted || refreshRevision != _tunnelStatusRevision) {
+            return;
+          }
+          unawaited(_startStatsPolling(restoreTime: true));
         }
       } else {
         _stopStatsPolling();
@@ -1256,20 +1262,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     );
 
     return (file: actualRenamedFile, error: null);
-  }
-
-  bool _samePaths(List<String> left, List<String> right) {
-    if (left.length != right.length) {
-      return false;
-    }
-
-    for (var index = 0; index < left.length; index += 1) {
-      if (left[index] != right[index]) {
-        return false;
-      }
-    }
-
-    return true;
   }
 
   Future<String?> _readConfigContent(File file) async {
@@ -2025,103 +2017,117 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     File? selectedConfig,
     Set<String>? pinnedPaths,
   }) async {
-    await ImportedConfigsPrefs.savePaths(
-      importedConfigs.map((file) => file.path).toList(growable: false),
+    await ImportedConfigsPrefs.saveState(
+      paths: importedConfigs.map((file) => file.path).toList(growable: false),
+      pinnedPaths: (pinnedPaths ?? _pinnedConfigPaths).toList(growable: false),
+      selectedPath: selectedConfig?.path,
     );
-    await ImportedConfigsPrefs.savePinnedPaths(
-      (pinnedPaths ?? _pinnedConfigPaths).toList(growable: false),
-    );
-    await ImportedConfigsPrefs.saveSelectedPath(selectedConfig?.path);
   }
 
   Future<void> _restoreImportedConfigs() async {
-    final persistedCountryInfo =
-        await ImportedConfigsPrefs.loadCountryInfoCache();
-    _countryInfoByLookupKey
-      ..clear()
-      ..addEntries(
-        persistedCountryInfo.entries.map(
-          (entry) =>
-              MapEntry<String, EndpointCountryInfo?>(entry.key, entry.value),
-        ),
+    try {
+      final persistedCountryInfo =
+          await ImportedConfigsPrefs.loadCountryInfoCache();
+      _countryInfoByLookupKey
+        ..clear()
+        ..addEntries(
+          persistedCountryInfo.entries.map(
+            (entry) =>
+                MapEntry<String, EndpointCountryInfo?>(entry.key, entry.value),
+          ),
+        );
+
+      final savedState = await ImportedConfigsPrefs.loadState();
+      final savedPaths = savedState.paths;
+      final savedPinnedPaths = savedState.pinnedPaths.toSet();
+      final savedSelectedPath = savedState.selectedPath;
+      final restoredConfigs = (await Future.wait(
+        savedPaths.map((path) async {
+          final file = File(path);
+          return await file.exists() ? file : null;
+        }),
+      )).whereType<File>().toList(growable: false);
+
+      final restoredPinnedPaths = savedPinnedPaths
+          .where((path) => restoredConfigs.any((file) => file.path == path))
+          .toSet();
+      final orderedConfigs = _sortImportedConfigs(
+        restoredConfigs,
+        restoredPinnedPaths,
       );
 
-    final savedState = await ImportedConfigsPrefs.loadState();
-    final savedPaths = savedState.paths;
-    final savedPinnedPaths = savedState.pinnedPaths.toSet();
-    final savedSelectedPath = savedState.selectedPath;
-    final restoredConfigs = (await Future.wait(
-      savedPaths.map((path) async {
-        final file = File(path);
-        return await file.exists() ? file : null;
-      }),
-    )).whereType<File>().toList(growable: false);
-
-    final restoredPinnedPaths = savedPinnedPaths
-        .where((path) => restoredConfigs.any((file) => file.path == path))
-        .toSet();
-    final orderedConfigs = _sortImportedConfigs(
-      restoredConfigs,
-      restoredPinnedPaths,
-    );
-
-    File? selectedConfig;
-    if (savedSelectedPath != null) {
-      for (final file in orderedConfigs) {
-        if (file.path == savedSelectedPath) {
-          selectedConfig = file;
-          break;
+      File? selectedConfig;
+      if (savedSelectedPath != null) {
+        for (final file in orderedConfigs) {
+          if (file.path == savedSelectedPath) {
+            selectedConfig = file;
+            break;
+          }
         }
       }
-    }
-    selectedConfig ??= orderedConfigs.isNotEmpty ? orderedConfigs.first : null;
+      selectedConfig ??= orderedConfigs.isNotEmpty
+          ? orderedConfigs.first
+          : null;
 
-    final parsedConfig = selectedConfig == null
-        ? null
-        : await _readParsedConfig(selectedConfig);
-    final endpointsByPath = await _buildConfigEndpointsMap(
-      orderedConfigs,
-      selectedConfig: selectedConfig,
-      selectedParsedConfig: parsedConfig,
-    );
-    final isAmneziaByPath = await _buildConfigProtocolMap(
-      orderedConfigs,
-      selectedConfig: selectedConfig,
-      selectedParsedConfig: parsedConfig,
-    );
-    final restoredPaths = orderedConfigs
-        .map((file) => file.path)
-        .toList(growable: false);
-
-    if (!_samePaths(savedPaths, restoredPaths)) {
-      await ImportedConfigsPrefs.savePaths(restoredPaths);
-    }
-    await ImportedConfigsPrefs.savePinnedPaths(
-      restoredPinnedPaths.toList(growable: false),
-    );
-    await ImportedConfigsPrefs.saveSelectedPath(selectedConfig?.path);
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _importedConfigs = orderedConfigs;
-      _pinnedConfigPaths = restoredPinnedPaths;
-      _configEndpointsByPath = endpointsByPath;
-      _configIsAmneziaByPath = isAmneziaByPath;
-      _selectedConf = selectedConfig;
-      _parsedConf = parsedConfig;
-      _isLoadingImportedConfigs = false;
-    });
-
-    unawaited(
-      _queueCountryLookupsForConfigs(
+      final parsedConfig = selectedConfig == null
+          ? null
+          : await _readParsedConfig(selectedConfig);
+      final endpointsByPath = await _buildConfigEndpointsMap(
         orderedConfigs,
-        endpointsByPath: endpointsByPath,
-      ),
-    );
-    unawaited(_refreshSubscriptions(force: true));
+        selectedConfig: selectedConfig,
+        selectedParsedConfig: parsedConfig,
+      );
+      final isAmneziaByPath = await _buildConfigProtocolMap(
+        orderedConfigs,
+        selectedConfig: selectedConfig,
+        selectedParsedConfig: parsedConfig,
+      );
+      final restoredPaths = orderedConfigs
+          .map((file) => file.path)
+          .toList(growable: false);
+
+      await ImportedConfigsPrefs.saveState(
+        paths: restoredPaths,
+        pinnedPaths: restoredPinnedPaths.toList(growable: false),
+        selectedPath: selectedConfig?.path,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _importedConfigs = orderedConfigs;
+        _pinnedConfigPaths = restoredPinnedPaths;
+        _configEndpointsByPath = endpointsByPath;
+        _configIsAmneziaByPath = isAmneziaByPath;
+        _selectedConf = selectedConfig;
+        _parsedConf = parsedConfig;
+        _isLoadingImportedConfigs = false;
+      });
+
+      unawaited(
+        _queueCountryLookupsForConfigs(
+          orderedConfigs,
+          endpointsByPath: endpointsByPath,
+        ),
+      );
+      unawaited(_refreshSubscriptions(force: true));
+    } catch (error, stackTrace) {
+      unawaited(
+        AppLogService.logError(
+          'Failed to restore imported configurations',
+          error: error,
+          stackTrace: stackTrace,
+          origin: 'config_restore',
+        ),
+      );
+      if (mounted) {
+        setState(() {
+          _isLoadingImportedConfigs = false;
+        });
+      }
+    }
   }
 
   Future<void> _selectImportedConfig(File file) async {
@@ -2246,7 +2252,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       });
       if (connected) {
         if (!_isConnecting && !_isWaitingForTunnelTraffic) {
-          _startStatsPolling();
+          unawaited(_startStatsPolling());
         }
       } else {
         _stopStatsPolling();
@@ -2261,36 +2267,63 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
   }
 
-  void _startStatsPolling({bool restoreTime = false}) async {
-    _statsTimer?.cancel();
+  Future<void> _startStatsPolling({bool restoreTime = false}) async {
+    final pollingRevision = ++_statsPollingRevision;
     _uptimeTimer?.cancel();
+    _uptimeTimer = null;
+    if (!mounted || !_isConnected) {
+      return;
+    }
+
     if (!restoreTime || _connectionStartTime == null) {
-      _connectionStartTime = DateTime.now();
+      final connectionStartTime = DateTime.now();
+      _connectionStartTime = connectionStartTime;
       // Сохраняем время подключения
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(
-        _connectionStartTimeKey,
-        _connectionStartTime!.millisecondsSinceEpoch,
-      );
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        if (pollingRevision != _statsPollingRevision) {
+          return;
+        }
+        await prefs.setInt(
+          _connectionStartTimeKey,
+          connectionStartTime.millisecondsSinceEpoch,
+        );
+        if (pollingRevision != _statsPollingRevision ||
+            !mounted ||
+            !_isConnected) {
+          await prefs.remove(_connectionStartTimeKey);
+          return;
+        }
+      } catch (error, stackTrace) {
+        unawaited(
+          AppLogService.logError(
+            'Failed to persist tunnel connection start time',
+            error: error,
+            stackTrace: stackTrace,
+            origin: 'tunnel_stats',
+          ),
+        );
+      }
+    }
+    if (!mounted || pollingRevision != _statsPollingRevision || !_isConnected) {
+      return;
     }
     _fetchStats();
     _uptimeTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
+      if (mounted && pollingRevision == _statsPollingRevision && _isConnected) {
         setState(() {});
         _fetchStats();
       }
     });
   }
 
-  void _stopStatsPolling() async {
-    _statsTimer?.cancel();
-    _statsTimer = null;
+  void _stopStatsPolling() {
+    _statsPollingRevision += 1;
     _uptimeTimer?.cancel();
     _uptimeTimer = null;
     _connectionStartTime = null;
     // Удаляем сохранённое время подключения
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_connectionStartTimeKey);
+    unawaited(_removeStoredConnectionStartTime());
     if (mounted) {
       setState(() {
         _rxBytes = 0;
@@ -2300,7 +2333,28 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _removeStoredConnectionStartTime() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_connectionStartTimeKey);
+    } catch (error, stackTrace) {
+      unawaited(
+        AppLogService.logError(
+          'Failed to clear tunnel connection start time',
+          error: error,
+          stackTrace: stackTrace,
+          origin: 'tunnel_stats',
+        ),
+      );
+    }
+  }
+
   Future<void> _fetchStats() async {
+    if (_statsRequestInFlight || !mounted || !_isConnected) {
+      return;
+    }
+
+    _statsRequestInFlight = true;
     try {
       final stats = await _wireGuardChannel.invokeMethod<Map<dynamic, dynamic>>(
         'getWireGuardStats',
@@ -2315,7 +2369,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
           _isWaitingForTunnelTraffic = false;
         }
       });
-    } catch (_) {}
+    } catch (_) {
+      // A transient stats error should not interrupt the active tunnel.
+    } finally {
+      _statsRequestInFlight = false;
+    }
   }
 
   Future<bool> _waitForInboundTunnelTraffic(int connectionRevision) async {
@@ -2446,6 +2504,17 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final l10n = AppLocalizations.of(context);
 
     try {
+      // Restoration and import both update the same in-memory list. Wait for
+      // the initial snapshot so a fast user action cannot be overwritten by
+      // the slower startup restore.
+      final restoreFuture = _importedConfigsRestoreFuture;
+      if (restoreFuture != null) {
+        await restoreFuture;
+      }
+      if (!mounted) {
+        return;
+      }
+
       final content = (contentOverride ?? await _readConfigContent(file))
           ?.trim();
       if (content == null || content.isEmpty) {
@@ -2683,7 +2752,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       if (connected) {
         unawaited(HapticFeedback.lightImpact());
         unawaited(_showAndroidToast(l10n.connectedToast));
-        _startStatsPolling();
+        unawaited(_startStatsPolling());
       } else {
         _stopStatsPolling();
       }
@@ -2723,7 +2792,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   Future<void> _disconnectWireGuard() async {
     final l10n = AppLocalizations.of(context);
-    _tunnelStatusRevision += 1;
+    final disconnectRevision = ++_tunnelStatusRevision;
     _clearFloatingNotice();
     setState(() {
       _isConnecting = true;
@@ -2733,7 +2802,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     try {
       final status = await _wireGuardChannel
           .invokeMethod<Map<dynamic, dynamic>>('disconnectWireGuard');
-      if (!mounted) return;
+      if (!mounted || disconnectRevision != _tunnelStatusRevision) return;
 
       final connected = status?['connected'] == true;
       setState(() {
@@ -2744,13 +2813,19 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         unawaited(_showAndroidToast(l10n.disconnectedToast));
       }
     } on PlatformException catch (e) {
+      if (disconnectRevision != _tunnelStatusRevision) {
+        return;
+      }
       _showMessage(
         '${l10n.failedStopTunnel}: ${_translatedRuntimeMessage(e.message ?? e.code)}',
       );
     } catch (e) {
+      if (disconnectRevision != _tunnelStatusRevision) {
+        return;
+      }
       _showMessage('${l10n.failedStopTunnel}: $e');
     } finally {
-      if (mounted) {
+      if (mounted && disconnectRevision == _tunnelStatusRevision) {
         setState(() {
           _isConnecting = false;
         });

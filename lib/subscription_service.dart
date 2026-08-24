@@ -158,10 +158,7 @@ class SubscriptionService {
       return;
     }
 
-    await prefs.setString(
-      _activeUntilByPathKey,
-      jsonEncode(activeUntilByPath),
-    );
+    await prefs.setString(_activeUntilByPathKey, jsonEncode(activeUntilByPath));
   }
 
   static Future<void> removeConfigPathState(String path) async {
@@ -226,7 +223,9 @@ class SubscriptionService {
     String path,
   ) {
     final originalLength = checkpoints.length;
-    checkpoints.removeWhere((entry) => _notificationEntryMatchesPath(entry, path));
+    checkpoints.removeWhere(
+      (entry) => _notificationEntryMatchesPath(entry, path),
+    );
     return checkpoints.length != originalLength;
   }
 
@@ -246,7 +245,9 @@ class SubscriptionService {
     String entry,
     Set<String> importedPaths,
   ) {
-    return importedPaths.any((path) => _notificationEntryMatchesPath(entry, path));
+    return importedPaths.any(
+      (path) => _notificationEntryMatchesPath(entry, path),
+    );
   }
 
   static String _notificationCheckpointKey(
@@ -276,7 +277,10 @@ class SubscriptionService {
     final file = File(configPath);
     if (!await file.exists()) {
       await removeConfigPathState(configPath);
-      return (activeUntil: null, error: FileSystemException('Config not found', configPath));
+      return (
+        activeUntil: null,
+        error: FileSystemException('Config not found', configPath),
+      );
     }
 
     final parsedConfig = await _readParsedConfig(file);
@@ -360,7 +364,8 @@ class SubscriptionService {
         ),
       );
       notifiedPaths.removeWhere(
-        (entry) => !_notificationEntryMatchesImportedPaths(entry, importedPathSet),
+        (entry) =>
+            !_notificationEntryMatchesImportedPaths(entry, importedPathSet),
       );
     }
 
@@ -369,7 +374,10 @@ class SubscriptionService {
 
     if (markAsRefreshed) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_lastRefreshAtMillisKey, DateTime.now().millisecondsSinceEpoch);
+      await prefs.setInt(
+        _lastRefreshAtMillisKey,
+        DateTime.now().millisecondsSinceEpoch,
+      );
     }
 
     return activeUntilByPath;
@@ -472,9 +480,9 @@ class SubscriptionService {
     Object? lastError;
     for (final uri in _subinfoRequestUris()) {
       try {
-        final request = await _subinfoHttpClient.postUrl(uri).timeout(
-          _subscriptionRequestTimeout,
-        );
+        final request = await _subinfoHttpClient
+            .postUrl(uri)
+            .timeout(_subscriptionRequestTimeout);
         request.persistentConnection = false;
         request.headers.contentType = ContentType.json;
         request.headers.set(
@@ -488,7 +496,10 @@ class SubscriptionService {
         final response = await request.close().timeout(
           _subscriptionRequestTimeout,
         );
-        final responseText = await utf8.decoder.bind(response).join();
+        final responseText = await utf8.decoder
+            .bind(response)
+            .join()
+            .timeout(_subscriptionRequestTimeout);
         if (response.statusCode >= 200 && response.statusCode < 300) {
           return (
             activeUntil: _extractSubscriptionActiveUntil(responseText),
@@ -530,11 +541,15 @@ class SubscriptionService {
       return const <Map<String, String>>[];
     }
 
-    return value.whereType<Map>().map((entry) {
-      return entry.map(
-        (key, nestedValue) => MapEntry(key.toString(), nestedValue.toString()),
-      );
-    }).toList(growable: false);
+    return value
+        .whereType<Map>()
+        .map((entry) {
+          return entry.map(
+            (key, nestedValue) =>
+                MapEntry(key.toString(), nestedValue.toString()),
+          );
+        })
+        .toList(growable: false);
   }
 
   static String _configEndpointText(Map<String, dynamic>? parsedConfig) {

@@ -437,7 +437,7 @@ class MainActivity : FlutterActivity() {
 			selectedPackages = selectedPackages,
 		)
 
-		android.util.Log.d("SingBox", "Generated config: ${singBoxConfig.toString(2)}")
+		// Do not log the generated config: it contains the user's WireGuard private key.
 
 		val statusMessage = when (domainMode) {
 			SplitTunnelDomainMode.ALL -> "VPN sing-box подключен для всей системы"

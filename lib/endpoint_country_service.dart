@@ -234,7 +234,10 @@ class EndpointCountryService {
         return null;
       }
 
-      final responseBody = await response.transform(utf8.decoder).join();
+      final responseBody = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 5));
       final decodedBody = jsonDecode(responseBody);
       if (decodedBody is! Map) {
         return null;
