@@ -25,6 +25,31 @@ import 'theme_service.dart';
 import 'wg_config_parser.dart';
 
 const double _elementBorderRadius = 12.0;
+const MethodChannel _androidSystemUiChannel = MethodChannel(
+  'wgfytunnel/system_ui',
+);
+
+const SystemUiOverlayStyle _lightSystemUiOverlayStyle = SystemUiOverlayStyle(
+  statusBarColor: Colors.white,
+  statusBarIconBrightness: Brightness.dark,
+  statusBarBrightness: Brightness.light,
+  systemNavigationBarColor: Colors.white,
+  systemNavigationBarDividerColor: Colors.white,
+  systemNavigationBarIconBrightness: Brightness.dark,
+  systemStatusBarContrastEnforced: false,
+  systemNavigationBarContrastEnforced: false,
+);
+
+const SystemUiOverlayStyle _darkSystemUiOverlayStyle = SystemUiOverlayStyle(
+  statusBarColor: Colors.black,
+  statusBarIconBrightness: Brightness.light,
+  statusBarBrightness: Brightness.dark,
+  systemNavigationBarColor: Colors.black,
+  systemNavigationBarDividerColor: Colors.black,
+  systemNavigationBarIconBrightness: Brightness.light,
+  systemStatusBarContrastEnforced: false,
+  systemNavigationBarContrastEnforced: false,
+);
 
 enum SplitTunnelMode {
   all(
@@ -520,6 +545,23 @@ Future<void> main() async {
       final languageService = LanguageService();
       final themeService = ThemeService();
       await themeService.initialize();
+      if (Platform.isAndroid) {
+        try {
+          await _androidSystemUiChannel.invokeMethod<void>(
+            'configureEdgeToEdgeWindow',
+            <String, bool>{
+              'isDark': themeService.preference == AppThemePreference.dark,
+            },
+          );
+        } catch (error, stackTrace) {
+          await AppLogService.logError(
+            'Failed to configure the Android edge-to-edge window',
+            error: error,
+            stackTrace: stackTrace,
+            origin: 'startup',
+          );
+        }
+      }
       runApp(
         MultiProvider(
           providers: [
@@ -567,10 +609,7 @@ class MyApp extends StatelessWidget {
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
-        systemOverlayStyle: SystemUiOverlayStyle(
-          statusBarIconBrightness: Brightness.dark,
-          statusBarBrightness: Brightness.light,
-        ),
+        systemOverlayStyle: _lightSystemUiOverlayStyle,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -612,10 +651,7 @@ class MyApp extends StatelessWidget {
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
-        systemOverlayStyle: SystemUiOverlayStyle(
-          statusBarIconBrightness: Brightness.light,
-          statusBarBrightness: Brightness.dark,
-        ),
+        systemOverlayStyle: _darkSystemUiOverlayStyle,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -3438,19 +3474,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       ),
       boxShadow: secondaryActionDecoration.boxShadow,
     );
-    // On Android 15, avoid setting system bar colors directly and only
-    // request icon brightness while edge-to-edge is enabled.
     final systemUiOverlayStyle = isDark
-        ? const SystemUiOverlayStyle(
-            statusBarIconBrightness: Brightness.light,
-            statusBarBrightness: Brightness.dark,
-            systemNavigationBarIconBrightness: Brightness.light,
-          )
-        : const SystemUiOverlayStyle(
-            statusBarIconBrightness: Brightness.dark,
-            statusBarBrightness: Brightness.light,
-            systemNavigationBarIconBrightness: Brightness.dark,
-          );
+        ? _darkSystemUiOverlayStyle
+        : _lightSystemUiOverlayStyle;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: systemUiOverlayStyle,
