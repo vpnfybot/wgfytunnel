@@ -2,17 +2,19 @@ package com.example.wgfytunnel
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
 import android.content.res.Configuration
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
-import android.graphics.Color
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.SystemClock
-import android.view.View
+import android.provider.Settings
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
@@ -54,6 +56,7 @@ class MainActivity : FlutterActivity() {
 		get() = WireGuardRuntime.backend
 	private lateinit var singBoxManager: SingBoxManager
 	private var notificationPermissionRequestInFlight = false
+	private var pendingNotificationPermissionResult: MethodChannel.Result? = null
 	@Volatile
 	private var installedAppsCache: List<Map<String, String>>? = null
 	private var useSingBox = false
@@ -74,24 +77,16 @@ class MainActivity : FlutterActivity() {
 		singBoxManager = SingBoxManager(applicationContext)
 	}
 
-	@Suppress("DEPRECATION")
 	private fun configureEdgeToEdgeWindow(isDarkThemeOverride: Boolean? = null) {
 		WindowCompat.setDecorFitsSystemWindows(window, false)
-		val isDarkTheme =
-			isDarkThemeOverride ?: (
-				resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-					Configuration.UI_MODE_NIGHT_YES
-			)
-		val appBackgroundColor = if (isDarkTheme) Color.BLACK else Color.WHITE
-		window.decorView.setBackgroundColor(appBackgroundColor)
-		window.statusBarColor = appBackgroundColor
-		window.navigationBarColor = appBackgroundColor
-		if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R) {
-			window.decorView.systemUiVisibility =
-				window.decorView.systemUiVisibility or
-					View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
-					View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-					View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+			val attributes = window.attributes
+			if (attributes.layoutInDisplayCutoutMode != WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS) {
+				attributes.layoutInDisplayCutoutMode =
+					WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+				window.attributes = attributes
+			}
 		}
 
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -99,11 +94,14 @@ class MainActivity : FlutterActivity() {
 			window.isNavigationBarContrastEnforced = false
 		}
 
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-			window.attributes = window.attributes.apply {
-				layoutInDisplayCutoutMode =
-					WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-			}
+		val isDarkTheme =
+			isDarkThemeOverride ?: (
+				resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+					Configuration.UI_MODE_NIGHT_YES
+			)
+		WindowInsetsControllerCompat(window, window.decorView).apply {
+			isAppearanceLightStatusBars = !isDarkTheme
+			isAppearanceLightNavigationBars = !isDarkTheme
 		}
 	}
 
@@ -119,6 +117,8 @@ class MainActivity : FlutterActivity() {
 
 		notificationPermissionRequestInFlight = false
 		val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+		pendingNotificationPermissionResult?.success(granted)
+		pendingNotificationPermissionResult = null
 		if (!granted) {
 			return
 		}
@@ -143,6 +143,14 @@ class MainActivity : FlutterActivity() {
 		MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
 			.setMethodCallHandler { call, result ->
 				when (call.method) {
+					"requestNotificationPermission" -> {
+						requestNotificationPermissionFromSettings(result)
+					}
+
+					"openNotificationSettings" -> {
+						result.success(openAppNotificationSettings())
+					}
+
 					"showToast" -> {
 						val message = call.argument<String>("message")?.trim()
 						if (message.isNullOrEmpty()) {
@@ -1081,6 +1089,62 @@ class MainActivity : FlutterActivity() {
 			arrayOf(Manifest.permission.POST_NOTIFICATIONS),
 			notificationPermissionRequestCode,
 		)
+	}
+
+	private fun requestNotificationPermissionFromSettings(result: MethodChannel.Result) {
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+			result.success(openAppNotificationSettings())
+			return
+		}
+
+		if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+			result.success(true)
+			return
+		}
+
+		if (notificationPermissionRequestInFlight) {
+			result.error(
+				"NOTIFICATION_PERMISSION_REQUEST_IN_PROGRESS",
+				"A notification permission request is already in progress",
+				null,
+			)
+			return
+		}
+
+		notificationPermissionRequestInFlight = true
+		pendingNotificationPermissionResult = result
+		requestPermissions(
+			arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+			notificationPermissionRequestCode,
+		)
+	}
+
+	private fun openAppNotificationSettings(): Boolean {
+		val notificationSettingsIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+			Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+				putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+			}
+		} else {
+			Intent(
+				Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+				Uri.parse("package:$packageName"),
+			)
+		}
+
+		return runCatching {
+			startActivity(notificationSettingsIntent)
+			true
+		}.getOrElse {
+			runCatching {
+				startActivity(
+					Intent(
+						Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+						Uri.parse("package:$packageName"),
+					),
+				)
+				true
+			}.getOrDefault(false)
+		}
 	}
 
 	private data class InstalledApp(

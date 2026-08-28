@@ -25,7 +25,8 @@ class SplitTunnelSettingsPage extends StatefulWidget {
       _SplitTunnelSettingsPageState();
 }
 
-class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
+class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
+    with WidgetsBindingObserver {
   static const double _settingsBlockRadius = 12.0;
   static const double _pickerListSpacing = 4.0;
   static const double _inputRowHeight = 56.0;
@@ -70,6 +71,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadAppVersion();
     _loadPrefs();
     _loadNotificationsPermissionStatus();
@@ -77,10 +79,18 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _reconnectBannerTimer?.cancel();
     _appSearchController.dispose();
     _domainInputController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_loadNotificationsPermissionStatus());
+    }
   }
 
   Future<void> _loadAppVersion() async {
@@ -130,13 +140,23 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
     });
 
     try {
-      final currentStatus =
-          _notificationsEnabled ??
-          await SubscriptionService.areNotificationsEnabled();
-      if (currentStatus == false) {
-        await SubscriptionService.requestNotificationPermission();
+      final currentStatus = await SubscriptionService.areNotificationsEnabled();
+      if (currentStatus == true) {
+        await _wireGuardChannel.invokeMethod<bool>('openNotificationSettings');
+      } else {
+        await _wireGuardChannel.invokeMethod<bool>(
+          'requestNotificationPermission',
+        );
       }
       await _loadNotificationsPermissionStatus();
+    } on PlatformException catch (error) {
+      unawaited(
+        AppLogService.logError(
+          'Failed to update notification permission',
+          error: error,
+          origin: 'settings_ui',
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -2115,7 +2135,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage> {
       key: _scaffoldMessengerKey,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(l10n.settingsTitle),
           actions: [
             Padding(
               padding: const EdgeInsets.only(right: 8),

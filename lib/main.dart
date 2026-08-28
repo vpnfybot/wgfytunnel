@@ -30,22 +30,22 @@ const MethodChannel _androidSystemUiChannel = MethodChannel(
 );
 
 const SystemUiOverlayStyle _lightSystemUiOverlayStyle = SystemUiOverlayStyle(
-  statusBarColor: Colors.white,
+  statusBarColor: Colors.transparent,
   statusBarIconBrightness: Brightness.dark,
   statusBarBrightness: Brightness.light,
-  systemNavigationBarColor: Colors.white,
-  systemNavigationBarDividerColor: Colors.white,
+  systemNavigationBarColor: Colors.transparent,
+  systemNavigationBarDividerColor: Colors.transparent,
   systemNavigationBarIconBrightness: Brightness.dark,
   systemStatusBarContrastEnforced: false,
   systemNavigationBarContrastEnforced: false,
 );
 
 const SystemUiOverlayStyle _darkSystemUiOverlayStyle = SystemUiOverlayStyle(
-  statusBarColor: Colors.black,
+  statusBarColor: Colors.transparent,
   statusBarIconBrightness: Brightness.light,
   statusBarBrightness: Brightness.dark,
-  systemNavigationBarColor: Colors.black,
-  systemNavigationBarDividerColor: Colors.black,
+  systemNavigationBarColor: Colors.transparent,
+  systemNavigationBarDividerColor: Colors.transparent,
   systemNavigationBarIconBrightness: Brightness.light,
   systemStatusBarContrastEnforced: false,
   systemNavigationBarContrastEnforced: false,

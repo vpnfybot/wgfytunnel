@@ -19,14 +19,6 @@ class _AppLogsPageState extends State<AppLogsPage> {
     });
   }
 
-  Future<void> _clearLogs() async {
-    await AppLogService.clearLogs();
-    if (!mounted) {
-      return;
-    }
-    _refreshLogs();
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -39,11 +31,6 @@ class _AppLogsPageState extends State<AppLogsPage> {
           IconButton(
             onPressed: _refreshLogs,
             icon: const Icon(Icons.refresh_rounded),
-          ),
-          IconButton(
-            tooltip: l10n.clearLogsLabel,
-            onPressed: _clearLogs,
-            icon: const Icon(Icons.delete_sweep_rounded),
           ),
         ],
       ),

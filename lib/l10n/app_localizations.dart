@@ -193,8 +193,6 @@ class AppLocalizations {
       language == AppLanguage.ru ? 'Ошибки приложения' : 'Application errors';
   String get noLogsLabel =>
       language == AppLanguage.ru ? 'Логи пока пусты' : 'No logs yet';
-  String get clearLogsLabel =>
-      language == AppLanguage.ru ? 'Очистить логи' : 'Clear logs';
   String get failedLoadLogsLabel => language == AppLanguage.ru
       ? 'Не удалось загрузить логи'
       : 'Failed to load logs';
