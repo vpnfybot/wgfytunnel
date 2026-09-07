@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'app_log_service.dart';
 import 'app_logs_page.dart';
@@ -29,7 +30,11 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
     with WidgetsBindingObserver {
   static const double _settingsBlockRadius = 12.0;
   static const double _pickerListSpacing = 4.0;
+  static const double _pickerSheetHeightFactor = 0.82;
   static const double _inputRowHeight = 56.0;
+  static const double _appListItemHeight = _inputRowHeight - 4.0;
+  static const double _domainPickerControlHeight = _inputRowHeight - 2.0;
+  static const String _supportEmail = 'xofydigital@gmail.com';
   static const MethodChannel _wireGuardChannel = MethodChannel(
     'wgfytunnel/wireguard',
   );
@@ -65,6 +70,24 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
           borderRadius: BorderRadius.circular(999),
         ),
       ),
+    );
+  }
+
+  BoxDecoration _sheetSurfaceDecoration(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+    return BoxDecoration(
+      color: theme.colorScheme.surface,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+      boxShadow: isDark
+          ? [
+              BoxShadow(
+                color: Colors.white.withValues(alpha: 0.20),
+                blurRadius: 8,
+                spreadRadius: 0,
+                offset: const Offset(0, -2),
+              ),
+            ]
+          : null,
     );
   }
 
@@ -163,6 +186,46 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
           _isUpdatingNotificationsPermission = false;
         });
       }
+    }
+  }
+
+  Future<void> _openSupportEmailDraft() async {
+    var launched = false;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        launched =
+            await _wireGuardChannel.invokeMethod<bool>('openSupportEmail', {
+              'email': _supportEmail,
+            }) ==
+            true;
+      } on PlatformException {
+        launched = false;
+      }
+    }
+
+    if (!launched) {
+      final fallbackUris = <Uri>[
+        Uri.https('mail.google.com', '/mail/', {
+          'view': 'cm',
+          'fs': '1',
+          'to': _supportEmail,
+        }),
+        Uri(scheme: 'mailto', path: _supportEmail),
+      ];
+      for (final uri in fallbackUris) {
+        try {
+          if (await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+            launched = true;
+            break;
+          }
+        } on Object {
+          continue;
+        }
+      }
+    }
+
+    if (!launched && mounted) {
+      _showMessage(AppLocalizations.of(context).failedOpenLink, isError: true);
     }
   }
 
@@ -566,6 +629,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
     bool useMonochromeSwitchStyle = false,
     bool showSelectionIndicator = true,
     bool invertSelectionColors = false,
+    double optionVerticalPadding = 16.0,
     Color? selectedOptionBackgroundColor,
     Color Function(T value)? optionBackgroundColorBuilder,
     BoxBorder? Function(T value, bool isSelected, ThemeData theme)?
@@ -579,6 +643,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
     bool closeOnSelection = true,
     ValueChanged<T>? onSelectionChanged,
     Duration? footerTransitionDuration,
+    double footerTopPadding = 16.0,
     Widget? Function(
       BuildContext context,
       T currentSelection,
@@ -594,7 +659,6 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
       elevation: 0,
       builder: (sheetContext) {
         final theme = Theme.of(sheetContext);
-        final isDark = theme.brightness == Brightness.dark;
         var currentSelection = selected;
         var closeRequestId = 0;
 
@@ -648,27 +712,12 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
                   )
                 : Padding(
                     key: const ValueKey('selection-sheet-footer-visible'),
-                    padding: const EdgeInsets.only(top: 16),
+                    padding: EdgeInsets.only(top: footerTopPadding),
                     child: footer,
                   );
 
             return DecoratedBox(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(12),
-                ),
-                boxShadow: isDark
-                    ? [
-                        BoxShadow(
-                          color: Colors.white.withValues(alpha: 0.20),
-                          blurRadius: 8,
-                          spreadRadius: 0,
-                          offset: const Offset(0, -2),
-                        ),
-                      ]
-                    : null,
-              ),
+              decoration: _sheetSurfaceDecoration(theme),
               child: SafeArea(
                 child: SingleChildScrollView(
                   child: Padding(
@@ -732,6 +781,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
                                   theme,
                                 ),
                             sizeScale: optionScale,
+                            verticalPadding: optionVerticalPadding,
                             onTap: () => handleSelection(values[index]),
                           ),
                           if (index != values.length - 1)
@@ -755,7 +805,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
                                         position: slideAnimation,
                                         child: SizeTransition(
                                           sizeFactor: animation,
-                                          alignment: AlignmentDirectional.topStart,
+                                          alignment:
+                                              AlignmentDirectional.topStart,
                                           child: child,
                                         ),
                                       );
@@ -786,6 +837,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
       titleBuilder: (language) => _languageLabel(l10n, language),
       useSwitchIndicator: true,
       useMonochromeSwitchStyle: true,
+      optionVerticalPadding: 12,
       optionBackgroundColorBuilder: (_) =>
           isDark ? const Color(0xFF141414) : Colors.white,
       centerHeader: true,
@@ -812,6 +864,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
       titleBuilder: (preference) => _themePreferenceLabel(l10n, preference),
       useSwitchIndicator: true,
       useMonochromeSwitchStyle: true,
+      optionVerticalPadding: 12,
       optionBackgroundColorBuilder: (_) =>
           isDark ? const Color(0xFF141414) : Colors.white,
       centerHeader: true,
@@ -839,6 +892,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
       subtitleBuilder: (mode) =>
           _localizedSplitTunnelModeDescription(l10n, mode),
       showSelectionIndicator: false,
+      optionVerticalPadding: 12,
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
       centerHeader: true,
       showInternalDragHandle: true,
@@ -881,11 +935,13 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
       subtitleBuilder: (mode) =>
           _localizedSplitTunnelDomainModeDescription(l10n, mode),
       showSelectionIndicator: false,
+      optionVerticalPadding: 12,
       selectedOptionBackgroundColor: isDark ? Colors.white : null,
       centerHeader: true,
       showInternalDragHandle: true,
       closeOnSelection: false,
       footerTransitionDuration: const Duration(milliseconds: 200),
+      footerTopPadding: 12,
       onSelectionChanged: (selection) {
         setState(() {
           _domainMode = selection;
@@ -922,6 +978,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
     List<BoxShadow>? selectionIndicatorShadow,
     bool? forceLightSwitchOutline,
     double sizeScale = 1.0,
+    double verticalPadding = 16.0,
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
@@ -1016,7 +1073,10 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
         borderRadius: BorderRadius.circular(borderRadius),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
-          padding: EdgeInsets.all(16 * sizeScale),
+          padding: EdgeInsets.symmetric(
+            horizontal: 16 * sizeScale,
+            vertical: verticalPadding * sizeScale,
+          ),
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(borderRadius),
@@ -1359,35 +1419,40 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
           onTap: handleToggle,
           borderRadius: borderRadius,
           child: Container(
-            constraints: const BoxConstraints(minHeight: _inputRowHeight),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            constraints: const BoxConstraints(minHeight: _appListItemHeight),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
             child: Row(
               children: [
                 Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        app.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        app.packageName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.62,
+                  child: Transform.translate(
+                    offset: const Offset(0, 2),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          app.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
-                      ),
-                    ],
+                        Transform.translate(
+                          offset: const Offset(0, -4),
+                          child: Text(
+                            app.packageName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.62,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1435,25 +1500,18 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
         color: Colors.transparent,
         borderRadius: borderRadius,
         child: Container(
-          constraints: const BoxConstraints(minHeight: _inputRowHeight),
+          constraints: const BoxConstraints(
+            minHeight: _domainPickerControlHeight,
+          ),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(_settingsBlockRadius),
-                ),
-                alignment: Alignment.center,
-                child: const Icon(
-                  Icons.language_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
+              Icon(
+                Icons.language_rounded,
+                color: theme.colorScheme.onSurface,
+                size: 20,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   domain,
@@ -1506,6 +1564,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
         context: context,
         isScrollControlled: true,
         showDragHandle: false,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         builder: (sheetContext) {
           final theme = Theme.of(sheetContext);
           final isDark = theme.brightness == Brightness.dark;
@@ -1555,9 +1615,9 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
                 ),
               ];
 
-              return SafeArea(
+              final sheetContent = SafeArea(
                 child: FractionallySizedBox(
-                  heightFactor: 0.82,
+                  heightFactor: _pickerSheetHeightFactor,
                   child: Padding(
                     padding: EdgeInsets.only(top: 16, bottom: bottomInset + 20),
                     child: Column(
@@ -1656,6 +1716,10 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
                   ),
                 ),
               );
+              return DecoratedBox(
+                decoration: _sheetSurfaceDecoration(theme),
+                child: sheetContent,
+              );
             },
           );
         },
@@ -1678,6 +1742,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
       context: context,
       isScrollControlled: true,
       showDragHandle: false,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
       builder: (sheetContext) {
         final theme = Theme.of(sheetContext);
         final isDark = theme.brightness == Brightness.dark;
@@ -1728,11 +1794,11 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
               unawaited(_savePrefs());
             }
 
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.only(top: 16, bottom: bottomInset + 20),
-                child: SizedBox(
-                  height: MediaQuery.sizeOf(sheetContext).height * 0.78,
+            final sheetContent = SafeArea(
+              child: FractionallySizedBox(
+                heightFactor: _pickerSheetHeightFactor,
+                child: Padding(
+                  padding: EdgeInsets.only(top: 16, bottom: bottomInset + 20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -1754,7 +1820,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
                               children: [
                                 Expanded(
                                   child: SizedBox(
-                                    height: _inputRowHeight - 2,
+                                    height: _domainPickerControlHeight,
                                     child: TextField(
                                       controller: _domainInputController,
                                       style: theme.textTheme.bodyMedium
@@ -1801,8 +1867,8 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
                                 Transform.translate(
                                   offset: const Offset(0, -1),
                                   child: SizedBox(
-                                    width: _inputRowHeight - 2,
-                                    height: _inputRowHeight - 2,
+                                    width: _domainPickerControlHeight,
+                                    height: _domainPickerControlHeight,
                                     child: Material(
                                       color: addButtonBackgroundColor,
                                       borderRadius: BorderRadius.circular(
@@ -1850,20 +1916,20 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
                                     const SizedBox(height: _pickerListSpacing),
                                 itemBuilder: (context, index) {
                                   final domain = _domainList[index];
-                                  return Dismissible(
+                                  return _DomainSwipeActionPane(
                                     key: ValueKey(domain),
-                                    direction: DismissDirection.endToStart,
-                                    onDismissed: (_) => removeDomain(domain),
-                                    background: Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.transparent,
-                                        borderRadius: BorderRadius.circular(
-                                          _settingsBlockRadius,
+                                    deleteAction: TextButton(
+                                      onPressed: () => removeDomain(domain),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: const Color(
+                                          0xFFB45050,
                                         ),
-                                      ),
-                                      alignment: Alignment.centerRight,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 20,
+                                        minimumSize: Size.zero,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 20,
+                                        ),
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
                                       ),
                                       child: Text(
                                         l10n.deleteAction,
@@ -1885,6 +1951,10 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
                   ),
                 ),
               ),
+            );
+            return DecoratedBox(
+              decoration: _sheetSurfaceDecoration(theme),
+              child: sheetContent,
             );
           },
         );
@@ -2035,7 +2105,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
         onTap: onPressed,
         borderRadius: BorderRadius.circular(_settingsBlockRadius),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF141414) : Colors.white,
             borderRadius: BorderRadius.circular(_settingsBlockRadius),
@@ -2127,6 +2197,9 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
     final notificationsActionColor = _notificationsEnabled == false
         ? theme.colorScheme.error
         : null;
+    final supportActionTooltip = l10n.language == AppLanguage.ru
+        ? 'Поддержка'
+        : 'Support';
 
     if (_isLoadingPrefs) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -2136,6 +2209,11 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
       child: Scaffold(
         appBar: AppBar(
           actions: [
+            IconButton(
+              tooltip: supportActionTooltip,
+              onPressed: () => unawaited(_openSupportEmailDraft()),
+              icon: const Icon(Icons.support_agent_rounded),
+            ),
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: Tooltip(
@@ -2223,7 +2301,7 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
                     color: isDark ? null : Colors.black,
                     children: [
                       _buildSettingsTile(
-                        icon: Icons.filter_alt_outlined,
+                        icon: Icons.alt_route_rounded,
                         title: l10n.tunnelMode,
                         subtitle: _splitTunnelModeSummary(l10n),
                         onTap: _showSplitTunnelModeSheet,
@@ -2282,6 +2360,92 @@ class _SplitTunnelSettingsPageState extends State<SplitTunnelSettingsPage>
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _DomainSwipeActionPane extends StatefulWidget {
+  const _DomainSwipeActionPane({
+    super.key,
+    required this.child,
+    required this.deleteAction,
+  });
+
+  final Widget child;
+  final Widget deleteAction;
+
+  @override
+  State<_DomainSwipeActionPane> createState() => _DomainSwipeActionPaneState();
+}
+
+class _DomainSwipeActionPaneState extends State<_DomainSwipeActionPane> {
+  static const double _actionExtent = 112;
+  static const double _settleThreshold = _actionExtent / 2;
+  static const double _flingVelocity = 500;
+  static const Duration _settleDuration = Duration(milliseconds: 200);
+
+  double _dragOffset = 0;
+  bool _isDragging = false;
+
+  void _handleHorizontalDragStart(DragStartDetails details) {
+    setState(() {
+      _isDragging = true;
+    });
+  }
+
+  void _handleHorizontalDragUpdate(DragUpdateDetails details) {
+    setState(() {
+      _dragOffset = (_dragOffset + details.delta.dx)
+          .clamp(-_actionExtent, 0.0)
+          .toDouble();
+    });
+  }
+
+  void _handleHorizontalDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final shouldRevealDelete =
+        _dragOffset <= -_settleThreshold || velocity <= -_flingVelocity;
+
+    setState(() {
+      _isDragging = false;
+      _dragOffset = shouldRevealDelete ? -_actionExtent : 0;
+    });
+  }
+
+  void _handleHorizontalDragCancel() {
+    setState(() {
+      _isDragging = false;
+      _dragOffset = _dragOffset <= -_settleThreshold ? -_actionExtent : 0;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart: _handleHorizontalDragStart,
+      onHorizontalDragUpdate: _handleHorizontalDragUpdate,
+      onHorizontalDragEnd: _handleHorizontalDragEnd,
+      onHorizontalDragCancel: _handleHorizontalDragCancel,
+      child: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: widget.deleteAction,
+            ),
+          ),
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: _dragOffset),
+            duration: _isDragging ? Duration.zero : _settleDuration,
+            curve: Curves.easeOutCubic,
+            builder: (context, offset, child) =>
+                Transform.translate(offset: Offset(offset, 0), child: child),
+            child: widget.child,
+          ),
+        ],
       ),
     );
   }

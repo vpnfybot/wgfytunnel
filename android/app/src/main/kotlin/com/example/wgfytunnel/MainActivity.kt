@@ -2,6 +2,7 @@ package com.example.wgfytunnel
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.res.Configuration
 import android.content.pm.ApplicationInfo
@@ -165,6 +166,10 @@ class MainActivity : FlutterActivity() {
 							Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
 							result.success(null)
 						}
+					}
+
+					"openSupportEmail" -> {
+						openSupportEmail(call.argument<String>("email"), result)
 					}
 
 					"getInstalledApps" -> {
@@ -412,6 +417,32 @@ class MainActivity : FlutterActivity() {
 				}
 			}
 		}
+	}
+
+	private fun openSupportEmail(email: String?, result: MethodChannel.Result) {
+		val normalizedEmail = email?.trim().orEmpty()
+		if (normalizedEmail.isEmpty()) {
+			result.success(false)
+			return
+		}
+
+		val emailUri = Uri.fromParts("mailto", normalizedEmail, null)
+		val gmailIntent = Intent(Intent.ACTION_SENDTO, emailUri).apply {
+			setPackage("com.google.android.gm")
+		}
+		val fallbackIntent = Intent(Intent.ACTION_SENDTO, emailUri)
+		val launched = try {
+			startActivity(gmailIntent)
+			true
+		} catch (_: ActivityNotFoundException) {
+			try {
+				startActivity(fallbackIntent)
+				true
+			} catch (_: ActivityNotFoundException) {
+				false
+			}
+		}
+		result.success(launched)
 	}
 
 	private fun getInstalledApps(result: MethodChannel.Result) {
