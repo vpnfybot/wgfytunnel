@@ -32,6 +32,7 @@ import java.net.DatagramSocket
 import java.net.DatagramPacket
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.Executors
 
@@ -50,6 +51,7 @@ class MainActivity : FlutterActivity() {
 	private val channelName = "wgfytunnel/wireguard"
 	private val executor = Executors.newSingleThreadExecutor()
 	private val dnsResolverExecutor = Executors.newCachedThreadPool()
+	private val configFilePicker by lazy { ConfigFilePicker(this, executor) }
 	private val tunnel: AppTunnel
 		get() = WireGuardRuntime.tunnel
 	private val backend: GoBackend
@@ -143,6 +145,10 @@ class MainActivity : FlutterActivity() {
 		MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
 			.setMethodCallHandler { call, result ->
 				when (call.method) {
+					"pickConfigFile" -> {
+						configFilePicker.open(result)
+					}
+
 					"requestNotificationPermission" -> {
 						requestNotificationPermissionFromSettings(result)
 					}
@@ -233,6 +239,16 @@ class MainActivity : FlutterActivity() {
 						}
 					}
 
+					"clearLastVpnConnection" -> {
+						LastVpnConnectionStore.clear(applicationContext)
+						QuickTileVpnController.requestTileRefresh(applicationContext)
+						result.success(null)
+					}
+
+					"getOrCreateXowgDeviceId" -> {
+						result.success(getOrCreateXowgDeviceId())
+					}
+
 					else -> {
 						result.notImplemented()
 					}
@@ -243,6 +259,9 @@ class MainActivity : FlutterActivity() {
 	@Deprecated("Deprecated in Java")
 	override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
 		super.onActivityResult(requestCode, resultCode, data)
+		if (configFilePicker.handleActivityResult(requestCode, resultCode, data)) {
+			return
+		}
 		if (requestCode != vpnPermissionRequestCode) {
 			return
 		}
@@ -1023,13 +1042,11 @@ class MainActivity : FlutterActivity() {
 
 
 
+	@Suppress("DEPRECATION")
 	private fun queryInstalledApps(): List<InstalledApp> {
-		val packages = try {
-			packageManager.getInstalledPackages(PackageManager.PackageInfoFlags.of(0))
-		} catch (_: NoSuchMethodError) {
-			@Suppress("DEPRECATION")
-			packageManager.getInstalledPackages(0)
-		}
+		// The int overloads remain supported on current Android and, unlike the
+		// API 33 Flags classes, are safe for the VM to resolve on Android 8.x.
+		val packages = packageManager.getInstalledPackages(0)
 
 		return packages.mapNotNull { packageInfo ->
 			val pkg = packageInfo.packageName
@@ -1041,9 +1058,6 @@ class MainActivity : FlutterActivity() {
 			}
 
 			val appInfo = try {
-				packageManager.getApplicationInfo(pkg, PackageManager.ApplicationInfoFlags.of(0))
-			} catch (_: NoSuchMethodError) {
-				@Suppress("DEPRECATION")
 				packageManager.getApplicationInfo(pkg, 0)
 			} catch (_: PackageManager.NameNotFoundException) {
 				return@mapNotNull null
@@ -1089,6 +1103,20 @@ class MainActivity : FlutterActivity() {
 			arrayOf(Manifest.permission.POST_NOTIFICATIONS),
 			notificationPermissionRequestCode,
 		)
+	}
+
+	private fun getOrCreateXowgDeviceId(): String {
+		val identityFile = File(noBackupFilesDir, "xowg_device_id")
+		val existing = runCatching {
+			identityFile.readText().trim().lowercase().also(UUID::fromString)
+		}.getOrNull()
+		if (existing != null) {
+			return existing
+		}
+
+		val generated = UUID.randomUUID().toString()
+		identityFile.writeText(generated)
+		return generated
 	}
 
 	private fun requestNotificationPermissionFromSettings(result: MethodChannel.Result) {

@@ -100,8 +100,11 @@ kotlin {
 }
 
 dependencies {
-    implementation("com.zaneschepke:amneziawg-android:2.3.7")
+    implementation(files("libs/hyperwg31.aar"))
+    implementation("androidx.annotation:annotation:1.9.1")
+    implementation("androidx.collection:collection:1.4.5")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+    testImplementation("junit:junit:4.13.2")
 }
 
 flutter {

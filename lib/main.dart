@@ -23,6 +23,9 @@ import 'split_tunnel_settings_page.dart';
 import 'subscription_service.dart';
 import 'theme_service.dart';
 import 'wg_config_parser.dart';
+import 'xowg_config.dart';
+import 'xowg_device_identity.dart';
+import 'xowg_enrollment_service.dart';
 
 const double _elementBorderRadius = 12.0;
 const MethodChannel _androidSystemUiChannel = MethodChannel(
@@ -509,7 +512,6 @@ Future<void> main() async {
       // ensureInitialized before runZonedGuarded causes Flutter's Zone mismatch
       // assertion during runApp on startup.
       WidgetsFlutterBinding.ensureInitialized();
-      await AppLogService.initialize();
 
       FlutterError.onError = (details) {
         FlutterError.presentError(details);
@@ -528,23 +530,36 @@ Future<void> main() async {
         return true;
       };
 
-      if (Platform.isAndroid) {
-        try {
-          await SubscriptionService.initializeAndroidAutomation();
-        } catch (error, stackTrace) {
-          await AppLogService.logError(
-            'Failed to initialize Android automation',
+      // File logging is optional. Starting it without awaiting keeps a storage
+      // or path-provider failure from blocking the first frame.
+      unawaited(AppLogService.initialize());
+
+      try {
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      } catch (error, stackTrace) {
+        unawaited(
+          AppLogService.logError(
+            'Failed to enable edge-to-edge system UI',
             error: error,
             stackTrace: stackTrace,
             origin: 'startup',
-          );
-        }
+          ),
+        );
       }
-
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       final languageService = LanguageService();
       final themeService = ThemeService();
-      await themeService.initialize();
+      try {
+        await themeService.initialize();
+      } catch (error, stackTrace) {
+        unawaited(
+          AppLogService.logError(
+            'Failed to restore the saved theme',
+            error: error,
+            stackTrace: stackTrace,
+            origin: 'startup',
+          ),
+        );
+      }
       if (Platform.isAndroid) {
         try {
           await _androidSystemUiChannel.invokeMethod<void>(
@@ -571,16 +586,40 @@ Future<void> main() async {
           child: const MyApp(),
         ),
       );
+
+      // WorkManager is not required to draw or use the app. Register it only
+      // after Flutter has produced the first frame, so a slow Play-services or
+      // OEM scheduler startup cannot hold the launch screen open.
+      if (Platform.isAndroid) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          unawaited(_initializeAndroidAutomationAfterFirstFrame());
+        });
+      }
     },
-    (error, stackTrace) async {
-      await AppLogService.logError(
-        'Unhandled zone error',
-        error: error,
-        stackTrace: stackTrace,
-        origin: 'zone',
+    (error, stackTrace) {
+      unawaited(
+        AppLogService.logError(
+          'Unhandled zone error',
+          error: error,
+          stackTrace: stackTrace,
+          origin: 'zone',
+        ),
       );
     },
   );
+}
+
+Future<void> _initializeAndroidAutomationAfterFirstFrame() async {
+  try {
+    await SubscriptionService.initializeAndroidAutomation();
+  } catch (error, stackTrace) {
+    await AppLogService.logError(
+      'Failed to initialize Android automation',
+      error: error,
+      stackTrace: stackTrace,
+      origin: 'startup',
+    );
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -704,6 +743,7 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   static const String _playStoreAppId = 'com.wgfytunnel';
   static const Duration _appUpdateCheckDelay = Duration(seconds: 5);
+  static const int _maxImportedConfigBytes = 1024 * 1024;
   static const int _silentConnectionRetryCount = 2;
   static const Duration _tunnelTrafficWaitTimeout = Duration(seconds: 2);
   static const Duration _tunnelTrafficPollInterval = Duration(
@@ -719,7 +759,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   List<File> _importedConfigs = const [];
   Set<String> _pinnedConfigPaths = <String>{};
   Map<String, String> _configEndpointsByPath = const <String, String>{};
-  Map<String, bool> _configIsAmneziaByPath = const <String, bool>{};
+  Map<String, ImportedConfigProtocol> _configProtocolByPath =
+      const <String, ImportedConfigProtocol>{};
   Map<String, String> _configActiveUntilByPath = const <String, String>{};
   Map<String, EndpointCountryInfo> _configCountriesByPath =
       const <String, EndpointCountryInfo>{};
@@ -1247,12 +1288,12 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       updatedEndpointsByPath[actualRenamedFile.path] = endpointText;
     }
 
-    final updatedIsAmneziaByPath = Map<String, bool>.from(
-      _configIsAmneziaByPath,
+    final updatedProtocolByPath = Map<String, ImportedConfigProtocol>.from(
+      _configProtocolByPath,
     );
-    final isAmnezia = updatedIsAmneziaByPath.remove(file.path);
-    if (isAmnezia != null) {
-      updatedIsAmneziaByPath[actualRenamedFile.path] = isAmnezia;
+    final protocol = updatedProtocolByPath.remove(file.path);
+    if (protocol != null) {
+      updatedProtocolByPath[actualRenamedFile.path] = protocol;
     }
 
     final updatedActiveUntilByPath = Map<String, String>.from(
@@ -1280,7 +1321,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _importedConfigs = updatedConfigs;
         _pinnedConfigPaths = updatedPinnedPaths;
         _configEndpointsByPath = updatedEndpointsByPath;
-        _configIsAmneziaByPath = updatedIsAmneziaByPath;
+        _configProtocolByPath = updatedProtocolByPath;
         _configActiveUntilByPath = updatedActiveUntilByPath;
         _configCountriesByPath = updatedCountriesByPath;
         _selectedConf = updatedSelectedConfig;
@@ -1302,6 +1343,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   Future<String?> _readConfigContent(File file) async {
     try {
+      if (await file.length() > _maxImportedConfigBytes) {
+        return null;
+      }
       return await file.readAsString();
     } catch (_) {
       return null;
@@ -1310,6 +1354,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   Map<String, dynamic>? _parseConfigContent(String content) {
     try {
+      if (XowgConfig.hasMarker(content)) {
+        return XowgConfig.parse(content).toParsedConfig();
+      }
       return parseWireguardConfig(content);
     } catch (_) {
       return null;
@@ -1450,6 +1497,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       return '-';
     }
 
+    if (parsedConfig['protocol'] == XowgConfig.marker) {
+      return _stringMap(parsedConfig['global'])['ApiUrl'] ?? '-';
+    }
+
     final peers = _stringSections(parsedConfig['peers']);
     if (peers.isEmpty) {
       return '-';
@@ -1491,6 +1542,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         (key) => amneziaInterfaceKeys.contains(key.trim().toLowerCase()),
       ),
     );
+  }
+
+  ImportedConfigProtocol _configProtocol(Map<String, dynamic>? parsedConfig) {
+    if (parsedConfig?['protocol'] == XowgConfig.marker) {
+      return ImportedConfigProtocol.xowg;
+    }
+    return _isAmneziaConfig(parsedConfig)
+        ? ImportedConfigProtocol.amneziaWireGuard
+        : ImportedConfigProtocol.wireGuard;
   }
 
   List<String> _editableConfigFieldKeys(String sectionType) {
@@ -1652,15 +1712,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     if (previousLookupKey != updatedLookupKey) {
       updatedCountriesByPath.remove(file.path);
     }
-    final updatedIsAmneziaByPath = <String, bool>{
-      ..._configIsAmneziaByPath,
-      file.path: _isAmneziaConfig(updatedParsedConfig),
+    final updatedProtocolByPath = <String, ImportedConfigProtocol>{
+      ..._configProtocolByPath,
+      file.path: _configProtocol(updatedParsedConfig),
     };
 
     if (mounted) {
       setState(() {
         _configEndpointsByPath = updatedEndpointsByPath;
-        _configIsAmneziaByPath = updatedIsAmneziaByPath;
+        _configProtocolByPath = updatedProtocolByPath;
         _configCountriesByPath = updatedCountriesByPath;
         if (_selectedConf?.path == file.path) {
           _parsedConf = updatedParsedConfig;
@@ -1948,7 +2008,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     return Map<String, String>.fromEntries(entries);
   }
 
-  Future<Map<String, bool>> _buildConfigProtocolMap(
+  Future<Map<String, ImportedConfigProtocol>> _buildConfigProtocolMap(
     List<File> configs, {
     File? selectedConfig,
     Map<String, dynamic>? selectedParsedConfig,
@@ -1959,11 +2019,11 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
             selectedConfig != null && selectedConfig.path == file.path
             ? selectedParsedConfig
             : await _readParsedConfig(file);
-        return MapEntry(file.path, _isAmneziaConfig(parsedConfig));
+        return MapEntry(file.path, _configProtocol(parsedConfig));
       }),
     );
 
-    return Map<String, bool>.fromEntries(entries);
+    return Map<String, ImportedConfigProtocol>.fromEntries(entries);
   }
 
   List<File> _sortImportedConfigs(List<File> configs, Set<String> pinnedPaths) {
@@ -1981,23 +2041,34 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     return <File>[...pinnedConfigs, ...regularConfigs];
   }
 
-  bool _isAmneziaConfigFile(File file) {
-    return _configIsAmneziaByPath[file.path] ?? false;
+  ImportedConfigProtocol _configProtocolForFile(File file) {
+    return _configProtocolByPath[file.path] ?? ImportedConfigProtocol.wireGuard;
+  }
+
+  bool _isXowgConfigFile(File file) {
+    return _configProtocolForFile(file) == ImportedConfigProtocol.xowg;
   }
 
   List<File> _protocolOrderedConfigs(Iterable<File> configs) {
     final wireGuardConfigs = <File>[];
     final amneziaConfigs = <File>[];
+    final xowgConfigs = <File>[];
 
     for (final file in configs) {
-      if (_isAmneziaConfigFile(file)) {
-        amneziaConfigs.add(file);
-      } else {
-        wireGuardConfigs.add(file);
+      switch (_configProtocolForFile(file)) {
+        case ImportedConfigProtocol.wireGuard:
+          wireGuardConfigs.add(file);
+          break;
+        case ImportedConfigProtocol.amneziaWireGuard:
+          amneziaConfigs.add(file);
+          break;
+        case ImportedConfigProtocol.xowg:
+          xowgConfigs.add(file);
+          break;
       }
     }
 
-    return <File>[...wireGuardConfigs, ...amneziaConfigs];
+    return <File>[...wireGuardConfigs, ...amneziaConfigs, ...xowgConfigs];
   }
 
   List<File> _configsWithActiveFirstWithinProtocol(List<File> configs) {
@@ -2007,19 +2078,30 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       return configs;
     }
 
-    final selectedIsAmnezia = _isAmneziaConfigFile(selectedConfig);
+    final selectedProtocol = _configProtocolForFile(selectedConfig);
     final wireGuardConfigs = <File>[];
     final amneziaConfigs = <File>[];
+    final xowgConfigs = <File>[];
 
     for (final file in configs) {
-      if (_isAmneziaConfigFile(file)) {
-        amneziaConfigs.add(file);
-      } else {
-        wireGuardConfigs.add(file);
+      switch (_configProtocolForFile(file)) {
+        case ImportedConfigProtocol.wireGuard:
+          wireGuardConfigs.add(file);
+          break;
+        case ImportedConfigProtocol.amneziaWireGuard:
+          amneziaConfigs.add(file);
+          break;
+        case ImportedConfigProtocol.xowg:
+          xowgConfigs.add(file);
+          break;
       }
     }
 
-    final activeGroup = selectedIsAmnezia ? amneziaConfigs : wireGuardConfigs;
+    final activeGroup = switch (selectedProtocol) {
+      ImportedConfigProtocol.wireGuard => wireGuardConfigs,
+      ImportedConfigProtocol.amneziaWireGuard => amneziaConfigs,
+      ImportedConfigProtocol.xowg => xowgConfigs,
+    };
     final activeIndex = activeGroup.indexWhere(
       (config) => config.path == selectedConfig.path,
     );
@@ -2027,19 +2109,25 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       activeGroup.insert(0, activeGroup.removeAt(activeIndex));
     }
 
-    return <File>[...wireGuardConfigs, ...amneziaConfigs];
+    return <File>[...wireGuardConfigs, ...amneziaConfigs, ...xowgConfigs];
   }
 
   List<_ImportedConfigListEntry> _buildImportedConfigListEntries(
     List<File> configs,
   ) {
     final entries = <_ImportedConfigListEntry>[];
-    var hasAddedAmneziaSection = false;
+    ImportedConfigProtocol? previousProtocol;
 
     for (final file in configs) {
-      if (_isAmneziaConfigFile(file) && !hasAddedAmneziaSection) {
-        entries.add(const _ImportedConfigListEntry.section('AmneziaWG'));
-        hasAddedAmneziaSection = true;
+      final protocol = _configProtocolForFile(file);
+      if (protocol != previousProtocol) {
+        final label = switch (protocol) {
+          ImportedConfigProtocol.wireGuard => 'WireGuard',
+          ImportedConfigProtocol.amneziaWireGuard => 'AmneziaWG',
+          ImportedConfigProtocol.xowg => 'HyperWG',
+        };
+        entries.add(_ImportedConfigListEntry.section(label));
+        previousProtocol = protocol;
       }
 
       entries.add(_ImportedConfigListEntry.config(file));
@@ -2113,7 +2201,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         selectedConfig: selectedConfig,
         selectedParsedConfig: parsedConfig,
       );
-      final isAmneziaByPath = await _buildConfigProtocolMap(
+      final protocolByPath = await _buildConfigProtocolMap(
         orderedConfigs,
         selectedConfig: selectedConfig,
         selectedParsedConfig: parsedConfig,
@@ -2136,7 +2224,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _importedConfigs = orderedConfigs;
         _pinnedConfigPaths = restoredPinnedPaths;
         _configEndpointsByPath = endpointsByPath;
-        _configIsAmneziaByPath = isAmneziaByPath;
+        _configProtocolByPath = protocolByPath;
         _selectedConf = selectedConfig;
         _parsedConf = parsedConfig;
         _isLoadingImportedConfigs = false;
@@ -2189,9 +2277,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         ..._configEndpointsByPath,
         file.path: _configEndpointText(parsedConfig),
       };
-      _configIsAmneziaByPath = <String, bool>{
-        ..._configIsAmneziaByPath,
-        file.path: _isAmneziaConfig(parsedConfig),
+      _configProtocolByPath = <String, ImportedConfigProtocol>{
+        ..._configProtocolByPath,
+        file.path: _configProtocol(parsedConfig),
       };
       _selectedConf = file;
       _parsedConf = parsedConfig;
@@ -2209,8 +2297,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     final updatedEndpointsByPath = Map<String, String>.from(
       _configEndpointsByPath,
     )..remove(file.path);
-    final updatedIsAmneziaByPath = Map<String, bool>.from(
-      _configIsAmneziaByPath,
+    final updatedProtocolByPath = Map<String, ImportedConfigProtocol>.from(
+      _configProtocolByPath,
     )..remove(file.path);
     final updatedActiveUntilByPath = Map<String, String>.from(
       _configActiveUntilByPath,
@@ -2228,7 +2316,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       _importedConfigs = updatedConfigs;
       _pinnedConfigPaths = updatedPinnedPaths;
       _configEndpointsByPath = updatedEndpointsByPath;
-      _configIsAmneziaByPath = updatedIsAmneziaByPath;
+      _configProtocolByPath = updatedProtocolByPath;
       _configActiveUntilByPath = updatedActiveUntilByPath;
       _configCountriesByPath = updatedCountriesByPath;
       _selectedConf = nextSelectedConfig;
@@ -2497,21 +2585,34 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     );
   }
 
-  String _managedImportedConfigFileName(File sourceFile) {
-    final sourceFileName = _configName(sourceFile).trim();
-    final extensionIndex = sourceFileName.lastIndexOf('.');
+  String _managedImportedConfigFileName(
+    File sourceFile, {
+    String? sourceFileName,
+  }) {
+    final normalizedSourceFileName = sourceFileName?.trim();
+    final effectiveSourceFileName =
+        normalizedSourceFileName == null || normalizedSourceFileName.isEmpty
+        ? _configName(sourceFile).trim()
+        : normalizedSourceFileName;
+    final extensionIndex = effectiveSourceFileName.lastIndexOf('.');
     final sourceBaseName = extensionIndex > 0
-        ? sourceFileName.substring(0, extensionIndex).trim()
-        : sourceFileName;
+        ? effectiveSourceFileName.substring(0, extensionIndex).trim()
+        : effectiveSourceFileName;
     final normalizedBaseName = sourceBaseName.isEmpty
         ? 'config'
         : sourceBaseName;
     return '$normalizedBaseName.conf';
   }
 
-  Future<File> _copyToManagedConfigFile(File sourceFile) async {
+  Future<File> _copyToManagedConfigFile(
+    File sourceFile, {
+    String? sourceFileName,
+  }) async {
     final configsDirectory = await _managedConfigsDirectory();
-    final normalizedFileName = _managedImportedConfigFileName(sourceFile);
+    final normalizedFileName = _managedImportedConfigFileName(
+      sourceFile,
+      sourceFileName: sourceFileName,
+    );
     final baseName = normalizedFileName.substring(
       0,
       normalizedFileName.length - '.conf'.length,
@@ -2535,6 +2636,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   Future<void> _importConfigFile(
     File file, {
     String? contentOverride,
+    String? sourceFileName,
     bool copyToManagedStorage = false,
   }) async {
     final l10n = AppLocalizations.of(context);
@@ -2587,7 +2689,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
       var importedFile = file;
       if (copyToManagedStorage) {
-        importedFile = await _copyToManagedConfigFile(file);
+        importedFile = await _copyToManagedConfigFile(
+          file,
+          sourceFileName: sourceFileName,
+        );
       } else if (contentOverride != null) {
         await importedFile.writeAsString(content, flush: true);
       }
@@ -2600,15 +2705,15 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         importedFile.path: _configEndpointText(parsed),
         ..._configEndpointsByPath,
       };
-      final updatedIsAmneziaByPath = <String, bool>{
-        importedFile.path: _isAmneziaConfig(parsed),
-        ..._configIsAmneziaByPath,
+      final updatedProtocolByPath = <String, ImportedConfigProtocol>{
+        importedFile.path: _configProtocol(parsed),
+        ..._configProtocolByPath,
       };
 
       setState(() {
         _importedConfigs = updatedConfigs;
         _configEndpointsByPath = updatedEndpointsByPath;
-        _configIsAmneziaByPath = updatedIsAmneziaByPath;
+        _configProtocolByPath = updatedProtocolByPath;
         _selectedConf = importedFile;
         _parsedConf = parsed;
         _isLoadingImportedConfigs = false;
@@ -2630,24 +2735,62 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   Future<void> _importConf() async {
     final l10n = AppLocalizations.of(context);
+    File? temporaryAndroidFile;
+    String? sourceFileName;
 
     try {
-      final picked = await openFile();
+      final File? file;
+      if (Platform.isAndroid) {
+        final selection = await _wireGuardChannel
+            .invokeMapMethod<String, dynamic>('pickConfigFile');
+        final path = selection?['path'] as String?;
+        sourceFileName = selection?['name'] as String?;
+        file = path == null ? null : File(path);
+        temporaryAndroidFile = file;
+      } else {
+        final picked = await openFile();
+        file = picked == null ? null : File(picked.path);
+        sourceFileName = picked?.name;
+      }
 
-      if (picked == null) {
+      if (file == null) {
         unawaited(_showAndroidToast(l10n.fileSelectionCancelled));
         return;
       }
 
-      final file = File(picked.path);
       if (!await file.exists()) {
         _showMessage(l10n.failedReadFile);
         return;
       }
+      if (await file.length() > _maxImportedConfigBytes) {
+        _showMessage(l10n.configFileTooLarge);
+        return;
+      }
 
-      await _importConfigFile(file, copyToManagedStorage: true);
+      await _importConfigFile(
+        file,
+        sourceFileName: sourceFileName,
+        copyToManagedStorage: true,
+      );
+    } on PlatformException catch (error) {
+      if (error.code == 'CONFIG_FILE_TOO_LARGE') {
+        _showMessage(l10n.configFileTooLarge);
+      } else {
+        _showMessage(l10n.failedReadFile);
+      }
     } catch (e) {
       _showMessage('Error importing file: $e');
+    } finally {
+      final temporaryFile = temporaryAndroidFile;
+      if (temporaryFile != null) {
+        try {
+          if (await temporaryFile.exists()) {
+            await temporaryFile.delete();
+          }
+        } catch (_) {
+          // The OS may clean the app cache later; import already completed.
+        }
+      }
     }
   }
 
@@ -2672,6 +2815,36 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       // Android-only feedback; other platforms do not register this method.
     } on PlatformException {
       // Toast failures must not change a successfully completed VPN action.
+    }
+  }
+
+  Future<File> _enrollXowgConfig(File provisioningFile) async {
+    final content = await _readConfigContent(provisioningFile);
+    if (content == null) {
+      throw const XowgEnrollmentException('Cannot read HyperWG config');
+    }
+
+    final xowgConfig = XowgConfig.parse(content);
+    final deviceId = await XowgDeviceIdentity.loadOrCreate();
+    final enrollment = await const XowgEnrollmentService().enroll(
+      config: xowgConfig,
+      deviceId: deviceId,
+    );
+    final runtimeDirectory = await getTemporaryDirectory();
+    final runtimeFile = File(
+      '${runtimeDirectory.path}${Platform.pathSeparator}xowg_runtime.conf',
+    );
+    await runtimeFile.writeAsString(enrollment.nativeConfig, flush: true);
+    return runtimeFile;
+  }
+
+  Future<void> _clearLastVpnConnectionSnapshot() async {
+    try {
+      await _wireGuardChannel.invokeMethod<void>('clearLastVpnConnection');
+    } on MissingPluginException {
+      // HyperWG is still usable on platforms without the Android quick tile.
+    } on PlatformException {
+      // A stale quick-tile snapshot must not block the active connection.
     }
   }
 
@@ -2722,11 +2895,21 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       return;
     }
 
+    File? xowgRuntimeFile;
+    final selectedConfig = _selectedConf!;
+    final isXowg = _isXowgConfigFile(selectedConfig);
     try {
+      var tunnelConfigFile = selectedConfig;
+      if (isXowg) {
+        await _clearLastVpnConnectionSnapshot();
+        xowgRuntimeFile = await _enrollXowgConfig(selectedConfig);
+        tunnelConfigFile = xowgRuntimeFile;
+      }
+
       // Use sing-box backend when domain routing is needed (include/exclude domains)
       final useDomainRouting = domainMode != SplitTunnelDomainMode.all;
       final connectArguments = <String, Object>{
-        'filePath': _selectedConf!.path,
+        'filePath': tunnelConfigFile.path,
         'splitMode': splitMode.wireValue,
         'selectedPackages': selectedPackages.toList()..sort(),
         'domainMode': domainMode.wireValue,
@@ -2786,6 +2969,9 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
         _isWaitingForTunnelTraffic = false;
       });
       if (connected) {
+        if (isXowg) {
+          unawaited(_clearLastVpnConnectionSnapshot());
+        }
         unawaited(HapticFeedback.lightImpact());
         unawaited(_showAndroidToast(l10n.connectedToast));
         unawaited(_startStatsPolling());
@@ -2818,6 +3004,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
       }
       _showMessage('${l10n.failedStartTunnel}: $e');
     } finally {
+      if (xowgRuntimeFile != null) {
+        try {
+          await xowgRuntimeFile.delete();
+        } on FileSystemException {
+          // The app-private temporary file will be overwritten next time.
+        }
+      }
       if (mounted && connectionRevision == _tunnelStatusRevision) {
         setState(() {
           _isConnecting = false;
@@ -3041,7 +3234,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
 
     const configItemSpacing = 4.0;
-    const amneziaConfigItemSpacing = 8.0;
+    const nonWireGuardConfigItemSpacing = 8.0;
     const listTopPadding = 12.0;
     const listBottomPadding = 8.0;
     const configDateSpacing = 6.0;
@@ -3077,13 +3270,16 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
       final entry = displayEntries[index];
       final nextEntry = displayEntries[index + 1];
-      final isBetweenAmneziaConfigs =
+      final entryProtocol = entry.isSection
+          ? null
+          : _configProtocolForFile(entry.configFile);
+      final isBetweenSameNonWireGuardProtocol =
           !entry.isSection &&
           !nextEntry.isSection &&
-          _isAmneziaConfigFile(entry.configFile) &&
-          _isAmneziaConfigFile(nextEntry.configFile);
-      return isBetweenAmneziaConfigs
-          ? amneziaConfigItemSpacing
+          entryProtocol != ImportedConfigProtocol.wireGuard &&
+          entryProtocol == _configProtocolForFile(nextEntry.configFile);
+      return isBetweenSameNonWireGuardProtocol
+          ? nonWireGuardConfigItemSpacing
           : configItemSpacing;
     }
 

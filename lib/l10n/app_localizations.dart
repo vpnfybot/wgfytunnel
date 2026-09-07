@@ -95,8 +95,9 @@ class AppLocalizations {
 
   String get importedConfigs => _get('Импортированные конфигурации');
   String get noImportedConfigs => _get('Конфигурации еще не импортированы');
-  String get importOrScanWireGuardConfig =>
-      _get('Импортируйте или отсканируйте конфигурацию WireGuard / AmneziaWG');
+  String get importOrScanWireGuardConfig => _get(
+    'Импортируйте или отсканируйте конфигурацию WireGuard / AmneziaWG',
+  );
   String get pinConfig => _get('Закрепить');
   String get unpinConfig => _get('Открепить');
   String get noFileSelected => _get('Файл не выбран');
@@ -157,6 +158,8 @@ class AppLocalizations {
   String get errorLoadingApps => _get('Ошибка загрузки приложений');
   String get fileSelectionCancelled => _get('Выбор файла отменен');
   String get failedReadFile => _get('Не удалось прочитать файл');
+  String get configFileTooLarge =>
+      _get('Файл конфигурации слишком большой (максимум 1 МБ)');
   String get configAlreadyImported => _get('Конфигурация уже импортирована');
   String get configDialogTitle => _get('Настройки конфигурации');
   String get configInfoTitle => _get('Информация о конфигурации');
@@ -459,6 +462,8 @@ class AppLocalizations {
         return 'File selection cancelled';
       case 'Не удалось прочитать файл':
         return 'Failed to read file';
+      case 'Файл конфигурации слишком большой (максимум 1 МБ)':
+        return 'Configuration file is too large (1 MB maximum)';
       case 'Конфигурация уже импортирована':
         return 'Configuration already imported';
       case 'Настройки конфигурации':

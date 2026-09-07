@@ -66,6 +66,19 @@
                 android:value="vpn" />
         </service>
 
+        <!--
+             The bundled AmneziaWG 3.1 AAR contains the VPN service class but
+             ships an empty library manifest, so the app must register it.
+        -->
+        <service
+            android:name="org.amnezia.awg.backend.GoBackend$VpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".QuickSettingsVpnTileService"
             android:exported="true"

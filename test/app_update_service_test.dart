@@ -47,7 +47,7 @@ void main() {
   });
 
   test(
-    'uses immediate update only when flexible update is unavailable',
+    'uses the Play Store when only an immediate update is available',
     () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
@@ -56,23 +56,25 @@ void main() {
 
       final update = await AppUpdateService.checkForUpdate();
 
-      expect(update?.flow, AppUpdateFlow.immediate);
+      expect(update?.flow, AppUpdateFlow.playStore);
     },
   );
 
   test(
-    'reports a failed Play update flow so the store fallback can open',
+    'does not invoke the blocking Play updater for a store fallback',
     () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
-            throw PlatformException(code: 'IN_APP_UPDATE_FAILED');
+            calls.add(call.method);
+            return null;
           });
 
       final started = await AppUpdateService.startUpdate(
-        const PendingAppUpdate(flow: AppUpdateFlow.immediate),
+        const PendingAppUpdate(flow: AppUpdateFlow.playStore),
       );
 
       expect(started, isFalse);
+      expect(calls, isEmpty);
     },
   );
 

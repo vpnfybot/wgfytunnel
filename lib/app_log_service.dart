@@ -14,7 +14,15 @@ class AppLogService {
   static Future<void> _writeQueue = Future<void>.value();
 
   static Future<void> initialize() async {
-    await _ensureLogFile();
+    try {
+      await _ensureLogFile();
+    } catch (error, stackTrace) {
+      // Logging is diagnostic only and must never prevent the app from
+      // rendering its first frame.
+      _logFileFuture = null;
+      debugPrint('App log initialization skipped: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   static Future<void> logError(
@@ -24,22 +32,28 @@ class AppLogService {
     String origin = 'app',
   }) {
     return _enqueueWrite(() async {
-      final file = await _ensureLogFile();
-      final buffer = StringBuffer()
-        ..writeln(
-          '[${DateTime.now().toIso8601String()}] ERROR ${origin.toUpperCase()}',
-        )
-        ..writeln(message);
+      try {
+        final file = await _ensureLogFile();
+        final buffer = StringBuffer()
+          ..writeln(
+            '[${DateTime.now().toIso8601String()}] ERROR ${origin.toUpperCase()}',
+          )
+          ..writeln(message);
 
-      if (error != null) {
-        buffer.writeln('error: $error');
-      }
-      if (stackTrace != null) {
-        buffer.writeln(stackTrace.toString().trimRight());
-      }
-      buffer.writeln();
+        if (error != null) {
+          buffer.writeln('error: $error');
+        }
+        if (stackTrace != null) {
+          buffer.writeln(stackTrace.toString().trimRight());
+        }
+        buffer.writeln();
 
-      await _appendAndTrim(file, buffer.toString());
+        await _appendAndTrim(file, buffer.toString());
+      } catch (logError, logStackTrace) {
+        _logFileFuture = null;
+        debugPrint('Failed to write app log: $logError');
+        debugPrintStack(stackTrace: logStackTrace);
+      }
     });
   }
 

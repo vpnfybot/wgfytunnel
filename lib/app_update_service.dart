@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:in_app_update/in_app_update.dart';
 
-enum AppUpdateFlow { flexible, immediate, playStore }
+enum AppUpdateFlow { flexible, playStore }
 
 class PendingAppUpdate {
   const PendingAppUpdate({required this.flow, this.availableVersionCode});
@@ -24,13 +24,12 @@ class AppUpdateService {
         return null;
       }
 
-      // Prefer a flexible update. An immediate update hands control to a
-      // blocking Google Play activity, which is much more sensitive to Play
-      // Store startup/availability issues and can show a system error dialog.
+      // Never start the blocking immediate flow from the app. On some devices
+      // Google Play intermittently replaces the app with its own generic
+      // "Something went wrong" screen. A flexible update is non-blocking; when
+      // it is unavailable, the caller opens the regular Play Store listing.
       final flow = updateInfo.flexibleUpdateAllowed
           ? AppUpdateFlow.flexible
-          : updateInfo.immediateUpdateAllowed
-          ? AppUpdateFlow.immediate
           : AppUpdateFlow.playStore;
 
       return PendingAppUpdate(
@@ -57,11 +56,6 @@ class AppUpdateService {
           }
           await InAppUpdate.completeFlexibleUpdate();
           return true;
-        case AppUpdateFlow.immediate:
-          final result = await InAppUpdate.performImmediateUpdate();
-          // Cancellation is a completed user interaction and must not
-          // unexpectedly redirect the user to the Play Store.
-          return result != AppUpdateResult.inAppUpdateFailed;
         case AppUpdateFlow.playStore:
           return false;
       }
