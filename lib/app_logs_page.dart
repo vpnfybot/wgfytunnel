@@ -26,11 +26,13 @@ class _AppLogsPageState extends State<AppLogsPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.logsLabel),
         actions: [
-          IconButton(
-            onPressed: _refreshLogs,
-            icon: const Icon(Icons.refresh_rounded),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              onPressed: _refreshLogs,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
           ),
         ],
       ),
